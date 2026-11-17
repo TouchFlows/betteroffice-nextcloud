@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.log
+
+# Playwright
+/poc/test-results/
+/poc/playwright-report/
+/poc/blob-report/
+/poc/tests/.artifacts/
+
+# PoC relay's file-backed room storage (a stand-in for Phase 3's MariaDB
+# persistence) -- test and dev-server run data, never committed.
+/poc/relay/data/
