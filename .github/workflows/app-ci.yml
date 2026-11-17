@@ -1,0 +1,66 @@
+name: app CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', '.github/workflows/app-ci.yml']
+  pull_request:
+    paths: ['app/**', '.github/workflows/app-ci.yml']
+
+defaults:
+  run:
+    working-directory: app
+
+jobs:
+  php:
+    name: PHP (lint, coding standard, unit tests)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version: ['8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress
+
+      - name: Lint
+        run: composer lint
+
+      - name: Coding standard
+        run: composer cs:check
+
+      - name: Unit tests
+        run: composer test:unit
+
+      - name: Dependency audit
+        run: composer audit
+
+  frontend:
+    name: Frontend (typecheck, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+      - name: Dependency audit (shipped bundle only — fails the build)
+        run: npm audit --omit=dev
+
+      - name: Dependency audit (build tooling — warns only; tracked gaps in docs/security.md)
+        if: always()
+        run: npm audit || echo "::warning::npm audit found issues outside production deps; see docs/security.md"

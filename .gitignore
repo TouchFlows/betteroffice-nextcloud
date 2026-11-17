@@ -2,6 +2,18 @@ node_modules/
 dist/
 *.log
 
+# PHP (app/) -- composer.lock IS committed, for reproducible builds (PLAN.md §2.1)
+/app/vendor/
+/app/.php-cs-fixer.cache
+/app/.phpunit.result.cache
+
+# Built frontend assets (app/) -- Nextcloud apps commit source, not the build
+/app/js/
+
+# Relay build output and local secrets
+/relay/dist/
+/relay/.env
+
 # Playwright
 /poc/test-results/
 /poc/playwright-report/

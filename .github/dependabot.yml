@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: composer
+    directory: /app
+    schedule:
+      interval: weekly
+    # BetterOffice packages are JS-only (npm); this only covers the app's
+    # PHP tooling (phpunit, coding standard, the nextcloud/ocp dev stub).
+
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /relay
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /poc
+    schedule:
+      interval: weekly
+    # poc/ is frozen Phase 0 reference, not shipped — but a known-vulnerable
+    # BetterOffice/relay dependency there is still worth knowing about
+    # before it's ported into app/ or relay/ for real.
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

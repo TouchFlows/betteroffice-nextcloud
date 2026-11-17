@@ -1,0 +1,40 @@
+[Unit]
+Description=BetterOffice collaboration relay
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Dedicated unprivileged account -- PLAN.md §14.2. Create it with no shell
+# and no login: `useradd --system --no-create-home --shell /usr/sbin/nologin betteroffice-relay`.
+User=betteroffice-relay
+Group=betteroffice-relay
+WorkingDirectory=/opt/betteroffice-relay
+
+# Environment file must be chmod 600, owned by betteroffice-relay:betteroffice-relay.
+EnvironmentFile=/opt/betteroffice-relay/.env
+
+ExecStart=/usr/bin/node /opt/betteroffice-relay/dist/server.js
+
+Restart=on-failure
+RestartSec=5
+
+# Resource limits -- PLAN.md §14.2. Tune once real traffic is measured (§16);
+# these are conservative starting values for a single-host deployment.
+LimitNOFILE=65536
+MemoryMax=512M
+TasksMax=512
+
+# journald logging (the default for a simple service with no StandardOutput
+# override) -- `journalctl -u betteroffice-relay` reads it.
+
+# Defence in depth: this process does not need to write outside its own
+# working directory or touch most of the filesystem.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/betteroffice-relay
+
+[Install]
+WantedBy=multi-user.target
