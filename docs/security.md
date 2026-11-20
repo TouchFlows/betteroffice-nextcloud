@@ -39,14 +39,34 @@ at the repo root for how to report a vulnerability.
   never shipped to users). The available fix is a downgrade to an older
   `@nextcloud/vite-config`, which is not obviously safer. Re-check on every
   dependency bump; do not silently suppress the audit in CI.
+- `@nextcloud/files`' `webdav` dependency pulled in a vulnerable `minimatch`
+  (GHSA-g3hv-75wg-m249, ReDoS) as a *production* dependency, not a dev-tooling
+  one — that one is pinned to a fixed version via `app/package.json`'s
+  `overrides`, not left open. Re-check this override is still needed (and
+  still the right version) whenever `@nextcloud/files` is bumped.
 
 ## File access boundary
 
 The app must never grant file access beyond what Nextcloud's own
-permission/share model already allows (PLAN.md §6.3). A user must never gain
-access to a file by changing a file ID in a request. This is unenforced
-today because no such endpoint exists yet (Phase 1 has no file access code
-at all).
+permission/share model already allows (PLAN.md §6.3). Implemented as of
+Phase 2: `FileAccessService` resolves a file ID only through the requesting
+user's own folder (`getUserFolder($userId)->getById($fileId)`), so changing
+the file ID in a request to one the user has no share/ownership access to
+simply finds nothing — it was never a path to someone else's file in the
+first place, not an access check bolted on afterward. `DocumentController`
+rechecks `isReadable()`/`isUpdateable()` on every single request (nothing is
+cached across requests), satisfying "recheck permissions before every save"
+and "permission revocation must invalidate further writes" by construction.
+Save additionally requires a matching ETag (`If-Match` header) — a stale one
+refuses the write (§9.3) rather than overwriting, though the recoverable
+conflict copy §9.5 describes isn't built yet (Phase 5); today a conflict
+just refuses and tells the user, with no automatic recovery path.
+
+Still open: XLSX/PPTX aren't in `FileAccessService::SUPPORTED_MIME_TYPES`
+yet (Phase 4), and there is no authentication/authorisation boundary between
+the app and the relay yet (that's the whole "Required, not yet implemented"
+list above) — Phase 2's save path is single-editor only, with no
+collaboration or relay involved at all.
 
 ## The relay's trust boundary
 

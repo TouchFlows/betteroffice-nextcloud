@@ -20,3 +20,9 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   build tooling.
 - `[relay]` Relay service skeleton: health endpoint, migration runner,
   systemd unit template.
+- `[app]` DOCX file action ("Open with BetterOffice", also the double-click
+  default) registered into the Files app via `LoadAdditionalScriptsEvent`.
+- `[app]` Non-collaborative DOCX open/edit/save: `FileAccessService` and
+  `DocumentService` (permission-scoped file resolution, native locking,
+  ETag-conflict-checked saves), `EditorController`/`DocumentController`,
+  and a React editor page wired to `@betteroffice/docx-react`.

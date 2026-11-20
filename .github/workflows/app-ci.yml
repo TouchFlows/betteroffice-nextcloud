@@ -58,6 +58,12 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Editor e2e (against a mock document API — no live Nextcloud here, see docs/development.md)
+        run: npm run test:e2e
+
       - name: Dependency audit (shipped bundle only — fails the build)
         run: npm audit --omit=dev
 

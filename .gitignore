@@ -7,8 +7,10 @@ dist/
 /app/.php-cs-fixer.cache
 /app/.phpunit.result.cache
 
-# Built frontend assets (app/) -- Nextcloud apps commit source, not the build
+# Built frontend assets (app/) -- Nextcloud apps commit source, not the build.
+# Vite's worker/wasm handling writes some output to assets/ instead of js/.
 /app/js/
+/app/assets/
 
 # Relay build output and local secrets
 /relay/dist/
@@ -19,6 +21,8 @@ dist/
 /poc/playwright-report/
 /poc/blob-report/
 /poc/tests/.artifacts/
+/app/test-results/
+/app/playwright-report/
 
 # PoC relay's file-backed room storage (a stand-in for Phase 3's MariaDB
 # persistence) -- test and dev-server run data, never committed.

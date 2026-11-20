@@ -6,9 +6,15 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
   },
   "dependencies": {
+    "@betteroffice/docx": "0.5.1",
+    "@betteroffice/docx-react": "0.5.1",
+    "@nextcloud/auth": "2.6.0",
+    "@nextcloud/axios": "2.6.0",
+    "@nextcloud/files": "4.1.1",
     "@nextcloud/l10n": "3.4.1",
     "@nextcloud/router": "3.2.0",
     "react": "19.3.1",
@@ -16,6 +22,8 @@
   },
   "devDependencies": {
     "@nextcloud/vite-config": "2.5.4",
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "5.2.0",
@@ -24,5 +32,8 @@
   },
   "engines": {
     "node": "^20 || ^22 || ^24"
+  },
+  "overrides": {
+    "minimatch": "11.0.9"
   }
 }
