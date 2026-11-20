@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OCA\BetterOffice\AppInfo;
 
+use OCA\BetterOffice\Listener\LoadAdditionalScriptsListener;
+use OCA\Files\Event\LoadAdditionalScriptsEvent;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
@@ -17,8 +19,7 @@ class Application extends App implements IBootstrap {
 	}
 
 	public function register(IRegistrationContext $context): void {
-		// File actions, viewer registration and the editor controller land
-		// here in Phase 2 (PLAN.md §6.2).
+		$context->registerEventListener(LoadAdditionalScriptsEvent::class, LoadAdditionalScriptsListener::class);
 	}
 
 	public function boot(IBootContext $context): void {

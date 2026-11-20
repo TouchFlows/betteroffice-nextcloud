@@ -25,8 +25,18 @@ retrieval/saving, locking, version history, file actions, editor routing,
 collaboration token issuance, session management, conflict recovery, admin
 settings.
 
-Current state: app registration and a blank page (Phase 1). Everything else
-is Phase 2+.
+Current state (Phase 2): a DOCX-only "Open with BetterOffice" file action
+(also the double-click default, via the Files action's own `default`
+mechanism rather than a separate Viewer registration), an editor page/route,
+and non-collaborative read/save: `FileAccessService` resolves a file ID
+through the requesting user's own folder (`getUserFolder($userId)
+->getById($fileId)`, so an inaccessible ID just finds nothing — §6.3),
+`DocumentService` locks (`Node::lock()`), compares the caller's ETag against
+the live one, writes, unlocks. A stale ETag refuses the write rather than
+overwriting (§9.3) and surfaces as a "the file was modified elsewhere"
+message — not yet the recoverable conflict copy §9.5 calls for; that's
+Phase 5. XLSX/PPTX file actions and editors, and all of collaboration, are
+Phase 3/4.
 
 ## `app/` frontend — the BetterOffice editors
 
@@ -37,6 +47,8 @@ over WebSocket. The exact wiring differs per format — see
 `poc/RECONNAISSANCE.md` §3 for the confirmed, non-obvious differences (which
 prop/callback actually hands you the live collaboration replica, and which
 `CollaborationProvider` constructor accepts it directly vs. needs wrapping).
+Phase 2 only wires `DocxEditor`, without `collaboration` at all — it reads
+and writes `documentBuffer`/`onSave` directly against `DocumentController`.
 
 ## `relay/` — the collaboration relay
 
