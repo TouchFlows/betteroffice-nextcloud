@@ -48,6 +48,13 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 - `[relay]` The migration runner only ran a migration file's *first*
   SQL statement and silently ignored the rest, because its connection pool
   never enabled the driver's multi-statement capability.
+- `[relay]` `npm test` never actually ran any tests in CI: its `tests/**/*.test.ts`
+  glob depends on bash's `globstar` option, which an interactive local shell
+  often has on but GitHub Actions' non-interactive `bash -e` does not —
+  there it's passed through unexpanded and Node's test runner reports the
+  literal pattern as a missing file. Switched to Node's own built-in test
+  discovery (`node --test` with no path argument) instead of relying on the
+  shell to glob it.
 
 - `[app]` The Files file action never loaded in a real Nextcloud: the
   listener was registered against `OCA\Files\Event\LoadAdditionalScriptsEvent`,
