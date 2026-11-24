@@ -1,9 +1,9 @@
 # Relay migrations
 
 Plain numbered SQL files, applied in filename order by `npm run migrate`
-(`src/migrate.ts`). No schema exists yet — the first migration lands in
-Phase 3 alongside the real room/persistence implementation (PLAN.md §5.2,
-§8.4, §10).
+(`src/migrate.ts`). `0001_create_rooms.sql` is the real room/persistence
+schema (PLAN.md §5.2, §8.4, §10) — see its own header comment for what it
+deliberately does *not* yet model (room epoch, save-lease state) and why.
 
 ## Conventions
 

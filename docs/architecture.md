@@ -57,11 +57,18 @@ connections, binary update forwarding, durable persistence, checkpointing,
 save coordination, presence. Must never need direct access to Nextcloud's
 document storage.
 
-Current state: a health endpoint and a migration runner (Phase 1 skeleton).
-The real protocol — Yjs sync-v1 frames relayed between `CollaborationProvider`
-instances, independent of Cloudflare Durable Objects — is proven standalone
-in `poc/relay/` and documented in `poc/RECONNAISSANCE.md` §4; it moves here
-with MariaDB persistence, origin validation and token auth in Phase 3.
+Current state (Phase 3, relay engine; app-side wiring not yet landed): the
+real protocol proven standalone in `poc/relay/` (documented in
+`poc/RECONNAISSANCE.md` §4) — Yjs sync-v1 frames relayed between
+`CollaborationProvider` instances, independent of Cloudflare Durable
+Objects — now runs here for real: `Room` (`src/room.ts`) persists every
+accepted update to MariaDB *before* broadcasting it (`src/store.ts`,
+`migrations/0001_create_rooms.sql`), and the WebSocket endpoint
+(`src/wsServer.ts`) enforces a strict Origin allow-list and verifies a
+short-lived HMAC-signed collaboration token (`src/token.ts`) before letting a
+connection join a room, rejecting edit frames from a read-only token. Room
+identity, seeding and token issuance remain the Nextcloud app's job (next),
+not the relay's.
 
 ## Room initialisation and seeding (PLAN.md §8.2)
 

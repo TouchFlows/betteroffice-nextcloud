@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import mariadb, { type Connection } from 'mariadb';
@@ -28,12 +28,11 @@ function discoverMigrations(): MigrationFile[] {
 	return files
 		.sort()
 		.map((name) => {
-			const downName = name.replace(/\.sql$/, '.down.sql');
-			const downPath = join(migrationsDir, downName);
+			const downPath = join(migrationsDir, name.replace(/\.sql$/, '.down.sql'));
 			return {
 				name,
 				upPath: join(migrationsDir, name),
-				downPath: files.includes(downName) ? downPath : null,
+				downPath: existsSync(downPath) ? downPath : null,
 			};
 		});
 }
@@ -54,7 +53,12 @@ async function ensureMigrationsTable(conn: Connection): Promise<void> {
 
 async function up(): Promise<void> {
 	const config = loadConfig();
-	const pool = mariadb.createPool(config.database);
+	// Migration files may contain more than one statement; this driver
+	// otherwise only executes the first and silently ignores the rest.
+	// Trusted input only (migration files on disk, not user data), and
+	// scoped to this runner's own pool -- the server's runtime pool
+	// (src/server.ts) must not enable this.
+	const pool = mariadb.createPool({ ...config.database, multipleStatements: true });
 	const conn = await pool.getConnection();
 	try {
 		await ensureMigrationsTable(conn);
@@ -97,7 +101,7 @@ async function up(): Promise<void> {
 
 async function down(): Promise<void> {
 	const config = loadConfig();
-	const pool = mariadb.createPool(config.database);
+	const pool = mariadb.createPool({ ...config.database, multipleStatements: true });
 	const conn = await pool.getConnection();
 	try {
 		await ensureMigrationsTable(conn);
