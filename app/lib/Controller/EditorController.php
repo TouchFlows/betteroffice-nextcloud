@@ -12,6 +12,7 @@ use OCA\BetterOffice\Service\UnsupportedFileTypeException;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IRequest;
 use OCP\IUserSession;
@@ -27,6 +28,10 @@ class EditorController extends Controller {
 		parent::__construct($appName, $request);
 	}
 
+	// Reached by a plain top-level navigation (the Files action does
+	// `window.location.href = ...`), which carries no CSRF token -- same
+	// reasoning as the canonical nextcloud/app_template PageController.
+	#[NoCSRFRequired]
 	#[NoAdminRequired]
 	public function open(int $fileId): TemplateResponse {
 		$userId = $this->userSession->getUser()?->getUID();
@@ -46,7 +51,9 @@ class EditorController extends Controller {
 			return $this->errorResponse('This file is too large to open', Http::STATUS_REQUEST_ENTITY_TOO_LARGE);
 		}
 
-		Util::addScript('betteroffice', 'editor');
+		// @nextcloud/vite-config names the built chunk "betteroffice-editor.mjs" --
+		// JSResourceLocator looks for the exact filename passed, app-id prefix included.
+		Util::addScript('betteroffice', 'betteroffice-editor');
 		Util::addStyle('betteroffice', 'style');
 
 		return new TemplateResponse('betteroffice', 'editor', [
