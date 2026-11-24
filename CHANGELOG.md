@@ -21,8 +21,30 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 - `[relay]` Relay service skeleton: health endpoint, migration runner,
   systemd unit template.
 - `[app]` DOCX file action ("Open with BetterOffice", also the double-click
-  default) registered into the Files app via `LoadAdditionalScriptsEvent`.
+  default) registered into the Files app via
+  `OCP\Collaboration\Resources\LoadAdditionalScriptsEvent`.
 - `[app]` Non-collaborative DOCX open/edit/save: `FileAccessService` and
-  `DocumentService` (permission-scoped file resolution, native locking,
+  `DocumentService` (permission-scoped file resolution,
   ETag-conflict-checked saves), `EditorController`/`DocumentController`,
   and a React editor page wired to `@betteroffice/docx-react`.
+
+### Fixed
+
+- `[app]` The Files file action never loaded in a real Nextcloud: the
+  listener was registered against `OCA\Files\Event\LoadAdditionalScriptsEvent`,
+  which this version of Nextcloud never dispatches.
+- `[app]` `Util::addScript()` calls passed the un-prefixed entry name
+  (`main`/`files`/`editor`); `@nextcloud/vite-config` builds
+  app-id-prefixed chunks (`betteroffice-main.mjs` etc.), so every script
+  404'd.
+- `[app]` `EditorController`/`PageController` required a CSRF token on a
+  route only ever reached by a plain navigation (`window.location.href`),
+  which carries none.
+- `[app]` `DocumentService::save()` took its own exclusive lock around
+  `File::putContent()`, which already runs its own full lock lifecycle
+  internally — the outer lock collided with it and made every save throw
+  `LockedException`.
+- `[app]` The DOCX engine's Web Worker threw `window is not defined` the
+  first time it loaded its wasm module (on first save), because
+  `@nextcloud/vite-config` rewrites the wasm asset URL into a
+  `window.OC.filePath(...)` call that only works on the main thread.
