@@ -25,18 +25,29 @@ retrieval/saving, locking, version history, file actions, editor routing,
 collaboration token issuance, session management, conflict recovery, admin
 settings.
 
-Current state (Phase 2): a DOCX-only "Open with BetterOffice" file action
-(also the double-click default, via the Files action's own `default`
-mechanism rather than a separate Viewer registration), an editor page/route,
-and non-collaborative read/save: `FileAccessService` resolves a file ID
-through the requesting user's own folder (`getUserFolder($userId)
-->getById($fileId)`, so an inaccessible ID just finds nothing — §6.3),
-`DocumentService` locks (`Node::lock()`), compares the caller's ETag against
-the live one, writes, unlocks. A stale ETag refuses the write rather than
-overwriting (§9.3) and surfaces as a "the file was modified elsewhere"
-message — not yet the recoverable conflict copy §9.5 calls for; that's
-Phase 5. XLSX/PPTX file actions and editors, and all of collaboration, are
-Phase 3/4.
+Current state (Phase 2 + Phase 3 in progress): a DOCX-only "Open with
+BetterOffice" file action (also the double-click default, via the Files
+action's own `default` mechanism rather than a separate Viewer
+registration), an editor page/route, and non-collaborative read/save:
+`FileAccessService` resolves a file ID through the requesting user's own
+folder (`getUserFolder($userId)->getById($fileId)`, so an inaccessible ID
+just finds nothing — §6.3), `DocumentService` compares the caller's ETag
+against the live one and writes via `File::putContent()` (which runs its
+own full lock lifecycle internally -- no manual `lock()`/`unlock()` around
+it, see that method's own docblock for why one breaks the other). A stale
+ETag refuses the write rather than overwriting (§9.3) and surfaces as a
+"the file was modified elsewhere" message — not yet the recoverable
+conflict copy §9.5 calls for; that's Phase 5.
+
+Phase 3 so far: `RoomService` (keyed-HMAC room ids, §8.1), `CollaborationController`
+(`POST .../collab/session/{fileId}` resolves/creates the `betteroffice_sessions`
+row and issues a token; `PUT .../collab/session/{fileId}/seed` is the
+atomic seed create-if-absent, §8.2), and `SharedSecretService` (the
+auto-generated secret shared with the relay, §8.5). Not yet landed: the
+frontend's own collaboration wiring (still non-collaborative DOCX only, as
+in Phase 2) and the admin settings page to display/regenerate the secret.
+
+XLSX/PPTX file actions and editors are Phase 4.
 
 ## `app/` frontend — the BetterOffice editors
 
@@ -77,10 +88,17 @@ other client must adopt that exact seed rather than generating its own —
 confirmed as a hard requirement, not a style preference: two independently
 generated seeds from identical source bytes under different client IDs
 produce byte-different, non-converging state (reproduced in
-`poc/RECONNAISSANCE.md` §3). In Phase 2+ the Nextcloud app backend owns this
-(a `betteroffice_sessions` row, create-if-absent), not the relay — the
-Phase 0 PoC's relay-hosted seed registry (`poc/relay/seedRegistry.ts`) was a
-stand-in for that backend, not the intended production design.
+`poc/RECONNAISSANCE.md` §3). The Nextcloud app backend owns this (not the
+relay — the Phase 0 PoC's relay-hosted seed registry,
+`poc/relay/seedRegistry.ts`, was a stand-in for the production design, not
+the design itself): `POST .../collab/session/{fileId}` resolves (creating
+if absent) a `betteroffice_sessions` row and returns its seed if one is
+already set; `PUT .../collab/session/{fileId}/seed` is the atomic
+create-if-absent write (`SessionMapper::trySetSeed()`, an `UPDATE ... WHERE
+seed IS NULL`, checking affected rows) -- *every* client that finds no seed
+yet generates its own candidate and PUTs it, adopting whatever the response
+returns, win or lose. No client is designated "the owner" in production;
+that was only a PoC test-harness convenience.
 
 ## Why no Vue, no iframe, no WOPI
 
