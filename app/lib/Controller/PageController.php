@@ -6,6 +6,7 @@ namespace OCA\BetterOffice\Controller;
 
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
+use OCP\AppFramework\Http\Attribute\NoCSRFRequired;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\IRequest;
 
@@ -17,6 +18,7 @@ class PageController extends Controller {
 		parent::__construct($appName, $request);
 	}
 
+	#[NoCSRFRequired]
 	#[NoAdminRequired]
 	public function index(): TemplateResponse {
 		// A placeholder shell for now; editor routing lands in Phase 2

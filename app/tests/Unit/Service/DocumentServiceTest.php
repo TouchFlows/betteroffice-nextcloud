@@ -50,13 +50,14 @@ class DocumentServiceTest extends TestCase {
 	}
 
 	public function testSaveWritesWhenEtagMatchesAndReturnsTheNewEtag(): void {
+		// No lock()/unlock() expectations: File::putContent() runs its own
+		// full lock lifecycle internally. See the docblock on
+		// DocumentService::save() for why a caller-held lock breaks it.
 		$file = $this->createMock(File::class);
 		$file->method('getEtag')->willReturnOnConsecutiveCalls('"etag-1"', '"etag-2"');
 		$this->fileAccess->method('getWritableFile')->willReturn($file);
 
 		$file->expects(self::once())->method('putContent')->with('new bytes');
-		$file->expects(self::once())->method('lock')->with(ILockingProvider::LOCK_EXCLUSIVE);
-		$file->expects(self::once())->method('unlock')->with(ILockingProvider::LOCK_EXCLUSIVE);
 
 		$newEtag = $this->service->save('alice', 42, 'new bytes', '"etag-1"');
 
@@ -69,7 +70,6 @@ class DocumentServiceTest extends TestCase {
 		$this->fileAccess->method('getWritableFile')->willReturn($file);
 
 		$file->expects(self::never())->method('putContent');
-		$file->expects(self::once())->method('unlock')->with(ILockingProvider::LOCK_EXCLUSIVE);
 
 		$this->expectException(StaleEtagException::class);
 		$this->service->save('alice', 42, 'new bytes', '"etag-stale"');

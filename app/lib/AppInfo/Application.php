@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace OCA\BetterOffice\AppInfo;
 
 use OCA\BetterOffice\Listener\LoadAdditionalScriptsListener;
-use OCA\Files\Event\LoadAdditionalScriptsEvent;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
+use OCP\Collaboration\Resources\LoadAdditionalScriptsEvent;
 
 class Application extends App implements IBootstrap {
 	public const APP_ID = 'betteroffice';

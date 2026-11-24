@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios, { isAxiosError } from '@nextcloud/axios';
 import { getCurrentUser } from '@nextcloud/auth';
 import { generateUrl } from '@nextcloud/router';
 import { translate as t } from '@nextcloud/l10n';
-import { DocxEditor } from '@betteroffice/docx-react';
+import { DocxEditor, type DocxEditorRef } from '@betteroffice/docx-react';
 import '@betteroffice/docx-react/styles.css';
 
 export interface EditorAppProps {
@@ -19,6 +19,7 @@ function documentUrl(fileId: number): string {
 }
 
 export function EditorApp({ fileId, fileName, readOnly }: EditorAppProps) {
+	const editorRef = useRef<DocxEditorRef>(null);
 	const [documentBuffer, setDocumentBuffer] = useState<ArrayBuffer>();
 	const [etag, setEtag] = useState<string>();
 	const [loadError, setLoadError] = useState<string>();
@@ -67,13 +68,18 @@ export function EditorApp({ fileId, fileName, readOnly }: EditorAppProps) {
 		<div className="betteroffice-editor">
 			<SaveStatusBanner status={saveStatus} />
 			<DocxEditor
+				ref={editorRef}
 				documentBuffer={documentBuffer}
 				documentName={fileName}
 				readOnly={readOnly}
 				author={getCurrentUser()?.displayName ?? getCurrentUser()?.uid}
 				downloadOnSave={false}
+				onSaveRequest={() => true}
 				onSave={(buffer) => {
 					void handleSave(buffer);
+				}}
+				onError={() => {
+					setSaveStatus((current) => (current === 'saving' ? 'error' : current));
 				}}
 			/>
 		</div>
