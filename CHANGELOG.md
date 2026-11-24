@@ -27,8 +27,27 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   `DocumentService` (permission-scoped file resolution,
   ETag-conflict-checked saves), `EditorController`/`DocumentController`,
   and a React editor page wired to `@betteroffice/docx-react`.
+- `[relay]` Real collaboration room engine (PLAN.md §8): `Room` relays the
+  Yjs sync/awareness protocol between peers, persisting every accepted
+  update to MariaDB *before* broadcasting it (never after — an unpersisted
+  update is never acknowledged as accepted, §8.4/§9.6), with periodic
+  checkpoint compaction. The WebSocket endpoint enforces a strict Origin
+  allow-list and verifies a short-lived, HMAC-signed collaboration token
+  (§8.5, hand-rolled JWT-shaped HS256, no new dependency) before admitting a
+  connection, and rejects editing frames from a read-only token (§13).
+  Room identity and seeding remain the Nextcloud app's responsibility, not
+  the relay's, per `poc/app/roomSeed.ts`'s own note — that lands next.
 
 ### Fixed
+
+- `[relay]` The migration runner's rollback never actually worked:
+  `discoverMigrations()` checked whether a `.down.sql` file existed by
+  looking it up in a list that had already filtered every `.down.sql` file
+  out of — so `downPath` was always `null`. Never caught before because no
+  migration had ever shipped a `.down.sql` file to exercise it.
+- `[relay]` The migration runner only ran a migration file's *first*
+  SQL statement and silently ignored the rest, because its connection pool
+  never enabled the driver's multi-statement capability.
 
 - `[app]` The Files file action never loaded in a real Nextcloud: the
   listener was registered against `OCA\Files\Event\LoadAdditionalScriptsEvent`,

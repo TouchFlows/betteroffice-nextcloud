@@ -12,8 +12,11 @@
     "test": "node --import tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
+    "lib0": "0.2.120",
     "mariadb": "3.5.5",
-    "ws": "8.23.0"
+    "ws": "8.23.0",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33"
   },
   "devDependencies": {
     "@types/node": "26.6.6",

@@ -1,8 +1,6 @@
 /**
  * Centralises env parsing so the server, the migration runner and tests all
- * read the same variables the same way. Durable-persistence settings
- * (§5.2/§8.4) are only required by the migration runner today — the server
- * itself has nothing to persist yet (that lands in Phase 3).
+ * read the same variables the same way.
  */
 export interface RelayConfig {
 	port: number;
@@ -13,6 +11,14 @@ export interface RelayConfig {
 		user: string;
 		password: string;
 	};
+}
+
+/** Only the WebSocket server needs these -- `migrate.ts` must not require them just to run a migration. */
+export interface RelayServerConfig extends RelayConfig {
+	/** Shared with the Nextcloud app (`RoomService`) to verify collaboration tokens (§8.5). */
+	sharedSecret: string;
+	/** Exact origin the Nextcloud app is served from -- the relay rejects any other (§13 "Strict Origin validation"). */
+	allowedOrigin: string;
 }
 
 function required(name: string): string {
@@ -31,5 +37,13 @@ export function loadConfig(): RelayConfig {
 			user: required('BETTEROFFICE_RELAY_DB_USER'),
 			password: required('BETTEROFFICE_RELAY_DB_PASSWORD'),
 		},
+	};
+}
+
+export function loadServerConfig(): RelayServerConfig {
+	return {
+		...loadConfig(),
+		sharedSecret: required('BETTEROFFICE_RELAY_SHARED_SECRET'),
+		allowedOrigin: required('BETTEROFFICE_RELAY_ALLOWED_ORIGIN'),
 	};
 }

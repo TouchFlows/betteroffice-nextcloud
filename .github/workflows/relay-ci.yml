@@ -18,6 +18,29 @@ jobs:
     strategy:
       matrix:
         node-version: [20, 22, 24]
+    services:
+      # Phase 3's room/store/wsServer/migrate tests run against a real
+      # MariaDB, matching the dedicated-database requirement (PLAN.md §5.2)
+      # -- a mock would not catch a SQL mistake in the actual schema.
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: ci_root_only
+          MARIADB_DATABASE: betteroffice_relay_test
+          MARIADB_USER: betteroffice_relay_test
+          MARIADB_PASSWORD: test_only_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      BETTEROFFICE_RELAY_DB_HOST: 127.0.0.1
+      BETTEROFFICE_RELAY_DB_NAME: betteroffice_relay_test
+      BETTEROFFICE_RELAY_DB_USER: betteroffice_relay_test
+      BETTEROFFICE_RELAY_DB_PASSWORD: test_only_password
     steps:
       - uses: actions/checkout@v7
 
@@ -29,6 +52,17 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
+
+      - name: Apply relay migrations
+        run: npm run migrate
+
+      - name: Create migrate.test.ts's dedicated database
+        run: |
+          mariadb -h 127.0.0.1 -u root -pci_root_only -e "
+            CREATE DATABASE IF NOT EXISTS betteroffice_relay_migrate_test;
+            GRANT ALL PRIVILEGES ON betteroffice_relay_migrate_test.* TO 'betteroffice_relay_test'@'%';
+            FLUSH PRIVILEGES;"
+
       - run: npm test
       - run: npm run build
 

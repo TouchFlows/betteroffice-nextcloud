@@ -1,22 +1,31 @@
+import mariadb from 'mariadb';
 import { createHealthServer } from './app.js';
+import { loadServerConfig } from './config.js';
+import { attachCollaborationServer } from './wsServer.js';
 
 /**
- * Process bootstrap (PLAN.md Phase 1: "Create the relay skeleton"). Room
- * lifecycle, the collaboration WebSocket endpoint and durable persistence
- * are Phase 3 work (§4.C, §8, §14.2) — see poc/relay/ for the Phase 0 proof
- * that informs that implementation. This only proves the process starts,
- * answers a health check, and shuts down cleanly, which is what the
- * systemd unit (deploy/betteroffice-relay.service) needs to supervise it.
+ * Process bootstrap. Room lifecycle, the collaboration WebSocket endpoint
+ * and durable persistence (§4.C, §8, §14.2) are wired here; `poc/relay/`
+ * remains the Phase 0 proof that informed this implementation.
  */
-const port = Number(process.env.BETTEROFFICE_RELAY_PORT ?? 8787);
+const config = loadServerConfig();
+const pool = mariadb.createPool(config.database);
 const server = createHealthServer();
+const wss = attachCollaborationServer(server, config, pool);
 
-server.listen(port, () => {
-	console.log(`[relay] listening on :${port}`);
+server.listen(config.port, () => {
+	console.log(`[relay] listening on :${config.port}`);
 });
 
 function shutdown(): void {
-	server.close(() => process.exit(0));
+	// close() alone only stops accepting new connections; any still-open
+	// WebSocket keeps the event loop alive and the DB pool open, which would
+	// leave the process hanging on SIGTERM instead of exiting (PLAN.md §14.2
+	// "graceful shutdown").
+	wss.clients.forEach((client) => client.terminate());
+	server.close(() => {
+		void pool.end().finally(() => process.exit(0));
+	});
 }
 
 process.on('SIGTERM', shutdown);

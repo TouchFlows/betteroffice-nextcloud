@@ -1,25 +1,27 @@
 # BetterOffice relay
 
 Self-hosted WebSocket relay for real-time collaboration (PLAN.md §4.C, §8).
-**This is currently a skeleton**: a health endpoint and a migration runner,
-nothing more. Room lifecycle, the collaboration protocol, authentication and
-durable persistence are Phase 3 work.
+Relays the Yjs sync/awareness protocol between `CollaborationProvider`
+peers, persisting every accepted update to MariaDB before broadcasting it,
+behind a strict Origin allow-list and short-lived HMAC-signed collaboration
+tokens (§8.5, §13). Room identity and seeding are the Nextcloud app's job,
+not this service's — see `poc/app/roomSeed.ts`'s own note on why.
 
-See [`poc/relay/`](../poc/relay/) for the Phase 0 proof of concept that this
-will be built from — a working Yjs-sync-protocol relay with file-backed
-persistence, validated end-to-end against the real BetterOffice editors in
-[`poc/RECONNAISSANCE.md`](../poc/RECONNAISSANCE.md). That code is deliberately
-not ported in wholesale: it needs MariaDB persistence (§5.2), origin
-validation and signed-token auth (§8.5, §13) before it's this service.
+Built from [`poc/relay/`](../poc/relay/), the Phase 0 proof of concept
+validated end-to-end against the real BetterOffice editors in
+[`poc/RECONNAISSANCE.md`](../poc/RECONNAISSANCE.md) — not ported in
+wholesale: that PoC used file-backed persistence and trusted any client
+that could reach it, neither of which is acceptable here.
 
 ## Development
 
 ```bash
 npm install
-cp .env.example .env   # fill in a local MariaDB connection
+cp .env.example .env   # fill in a local MariaDB connection, shared secret, allowed origin
+npm run migrate         # apply the schema before first run
 npm run dev             # watches src/, serves :8787
 npm run typecheck
-npm test
+npm test                # needs the same BETTEROFFICE_RELAY_DB_* variables as `migrate`
 ```
 
 ## Database
