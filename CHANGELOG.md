@@ -37,6 +37,17 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   connection, and rejects editing frames from a read-only token (§13).
   Room identity and seeding remain the Nextcloud app's responsibility, not
   the relay's, per `poc/app/roomSeed.ts`'s own note — that lands next.
+- `[app]` Room identity, atomic session initialisation and collaboration
+  token issuance (PLAN.md §8.1, §8.2, §8.5): `betteroffice_sessions`
+  (create-if-absent, racing concurrent first-openers adopt whichever row
+  won rather than seeding a second divergent room), `RoomService` (keyed
+  HMAC room ids, scoped to this Nextcloud instance; short-lived HS256
+  collaboration tokens, matching `relay/src/token.ts`'s verifier), and
+  `CollaborationController`'s `POST /collab/session/{fileId}`. The shared
+  signing secret auto-generates on first use (`SharedSecretService`,
+  `IAppConfig`, same pattern Nextcloud Talk uses for its signaling
+  backend) — admin settings to display/regenerate it land with the
+  frontend wiring next.
 
 ### Fixed
 

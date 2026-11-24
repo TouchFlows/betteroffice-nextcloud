@@ -21,10 +21,12 @@ secret and allowed origin.
 
 ## Nextcloud app
 
-No app-specific admin settings exist yet. This section gets real content
-once the admin settings page PLAN.md §4.A and §11 call for lands
-(collaboration relay URL, and the shared secret to copy into the relay's
-`BETTEROFFICE_RELAY_SHARED_SECRET`).
+No app-specific admin settings page exists yet. The collaboration secret
+itself already auto-generates on first use (`SharedSecretService`, stored
+via `IAppConfig` as app config `collaboration_secret`) -- but until the
+settings page lands, an admin has no UI to read that generated value back
+out to copy into the relay's `BETTEROFFICE_RELAY_SHARED_SECRET`. This
+section gets real content once that page (PLAN.md §4.A, §11) lands.
 
 ## Hostnames
 
