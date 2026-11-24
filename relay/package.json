@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/migrate.ts",
-    "test": "node --import tsx --test tests/**/*.test.ts"
+    "test": "node --import tsx --test"
   },
   "dependencies": {
     "lib0": "0.2.120",
