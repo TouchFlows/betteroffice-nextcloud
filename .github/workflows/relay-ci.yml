@@ -57,11 +57,19 @@ jobs:
         run: npm run migrate
 
       - name: Create migrate.test.ts's dedicated database
+        # No mariadb/mysql CLI client is preinstalled on this runner image;
+        # the `mariadb` npm driver is already proven working by the
+        # migration step above, so use it here too instead of installing a
+        # system package just for one statement.
         run: |
-          mariadb -h 127.0.0.1 -u root -pci_root_only -e "
-            CREATE DATABASE IF NOT EXISTS betteroffice_relay_migrate_test;
-            GRANT ALL PRIVILEGES ON betteroffice_relay_migrate_test.* TO 'betteroffice_relay_test'@'%';
-            FLUSH PRIVILEGES;"
+          node --input-type=module -e "
+            import mariadb from 'mariadb';
+            const conn = await mariadb.createConnection({ host: '127.0.0.1', user: 'root', password: 'ci_root_only' });
+            await conn.query('CREATE DATABASE IF NOT EXISTS betteroffice_relay_migrate_test');
+            await conn.query(\"GRANT ALL PRIVILEGES ON betteroffice_relay_migrate_test.* TO 'betteroffice_relay_test'@'%'\");
+            await conn.query('FLUSH PRIVILEGES');
+            await conn.end();
+          "
 
       - run: npm test
       - run: npm run build
