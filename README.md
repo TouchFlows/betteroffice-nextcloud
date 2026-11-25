@@ -5,6 +5,9 @@ XLSX and PPTX files using [BetterOffice](https://betteroffice.dev/)'s
 WebAssembly editors, with real-time collaboration served by a self-hosted
 relay — no Collabora, no ONLYOFFICE, no external document service.
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=github)](https://github.com/sponsors/marktamis)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Support-FFDD00?logo=buy-me-a-coffee&logoColor=000)](https://buymeacoffee.com/marktamis)
+
 This repository is a monorepo with three independently deployable pieces:
 
 | Path | What it is |
