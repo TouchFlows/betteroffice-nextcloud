@@ -110,6 +110,14 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   neither the Nextcloud log nor the relay log mentions it, so this was the one
   failure mode with nowhere to look.
 
+- `[app]` CI now guards the e2e harness itself rather than only the code it
+  drives: `npm run typecheck:e2e` type-checks `tests/e2e` (it has its own
+  tsconfig, and the root one only includes `src/`, so the specs and their
+  mocks were the only TypeScript in the repository CI never checked), and the
+  e2e step runs the suite with `--repeat-each=2`. A shared room or shared
+  mock state only fails on the second pass, so a single run would have let
+  the per-test isolation above regress unnoticed.
+
 ### Fixed
 
 - `[relay]` A read-only participant's rejected edit could still reach the
