@@ -18,7 +18,7 @@ import {
 	resolveInitialUpdate,
 	type CollaborationSession,
 } from './collaboration/session';
-import { fetchPresence, type PresenceParticipant } from './collaboration/presence';
+import { fetchPresence, PresenceAuthError, type PresenceParticipant } from './collaboration/presence';
 
 export interface EditorAppProps {
 	fileId: number;
@@ -189,15 +189,29 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 		}
 
 		let cancelled = false;
+		const loadRoster = async (): Promise<PresenceParticipant[]> => {
+			let token = presenceTokenRef.current;
+			if (token === null || Date.now() - token.at >= PRESENCE_TOKEN_REUSE_MS) {
+				const fresh = await requestCollaborationSession(fileId);
+				token = { roomId: fresh.roomId, token: fresh.token, at: Date.now() };
+				presenceTokenRef.current = token;
+			}
+			return fetchPresence(relayUrl, token.roomId, token.token);
+		};
 		const refresh = async () => {
 			try {
-				let token = presenceTokenRef.current;
-				if (token === null || Date.now() - token.at >= PRESENCE_TOKEN_REUSE_MS) {
-					const fresh = await requestCollaborationSession(fileId);
-					token = { roomId: fresh.roomId, token: fresh.token, at: Date.now() };
-					presenceTokenRef.current = token;
+				let roster: PresenceParticipant[];
+				try {
+					roster = await loadRoster();
+				} catch (error) {
+					if (!(error instanceof PresenceAuthError)) throw error;
+					// 401/403: this token is dead for good -- expired, or signed for
+					// a room the relay no longer serves. Retrying it until the reuse
+					// window ran out would leave the roster empty for minutes, so
+					// forget it and resolve a new session straight away.
+					presenceTokenRef.current = null;
+					roster = await loadRoster();
 				}
-				const roster = await fetchPresence(relayUrl, token.roomId, token.token);
 				// Only a changed roster is worth a re-render: the editor below is
 				// a heavy component and polling must not re-render it every few
 				// seconds for nothing.

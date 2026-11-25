@@ -94,6 +94,16 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 
 ### Fixed
 
+- `[app]` Presence kept retrying a collaboration token the relay had already
+  refused. The roster reuses the token the session handshake resolved for
+  four minutes, so once that token expired (five-minute lifetime) every read
+  answered 401 and the editor listed no collaborators for the rest of the
+  window. A 401/403 now drops the cached token and resolves a new session
+  straight away.
+- `[relay]` Presence refusals (401/403) now carry the CORS header for the
+  configured Origin, so the editor can read the status. Without it the browser
+  turned the refusal into an opaque CORS error, which is what made the fix
+  above impossible to detect on the client.
 - `[relay]` The migration runner's rollback never actually worked:
   `discoverMigrations()` checked whether a `.down.sql` file existed by
   looking it up in a list that had already filtered every `.down.sql` file
