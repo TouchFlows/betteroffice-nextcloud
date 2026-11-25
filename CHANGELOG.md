@@ -104,6 +104,13 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 
 ### Fixed
 
+- `[app]` The collaboration e2e mock gave every test execution the same
+  room, so `--repeat-each` and parallel runs shared one seed and one edit
+  history and failed on the previous run's text. Each execution now asks for
+  its own room (a `betteroffice-e2e-room` cookie, which the harness sets per
+  test), and the mock's seeds and token lifetimes are keyed by it — a cookie
+  rather than a header because a custom header makes the cross-origin
+  presence request non-simple and the relay refuses the preflight.
 - `[app]` The editor page now ships a Content-Security-Policy that lets it
   work inside a real Nextcloud at all: `'wasm-unsafe-eval'` for the
   WebAssembly engine and the configured relay's origin in `connect-src`.

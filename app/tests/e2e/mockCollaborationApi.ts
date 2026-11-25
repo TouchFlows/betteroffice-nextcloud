@@ -20,10 +20,15 @@ import { TEST_RELAY_ORIGIN, TEST_SHARED_SECRET } from './testRelay';
  *   atomic `trySetSeed` semantics), which is what makes two clients converge
  *   instead of each seeding their own room.
  *
+ * Each test execution owns its own room: the room id this mock hands out is
+ * the one the browser context asks for with the `betteroffice-e2e-room`
+ * cookie, so a repeated or parallel run never inherits another run's seed or
+ * edit history.
+ *
  * The token lifetime is configurable through a test-only control channel
- * (`POST /__test__/token-ttl?seconds=N`, like mockDocumentApi.ts's
- * `force-conflict`), so a test can reach expiry without waiting five
- * minutes.
+ * (`POST /__test__/token-ttl?seconds=N&room=<roomId>`, like
+ * mockDocumentApi.ts's `force-conflict`), so a test can reach expiry without
+ * waiting five minutes -- per room, for the same reason.
  *
  * A browser context that sends the `betteroffice-e2e-role=read` cookie is
  * treated as a viewer: the real app derives the role from the user's file
@@ -34,9 +39,13 @@ import { TEST_RELAY_ORIGIN, TEST_SHARED_SECRET } from './testRelay';
  * URL in the token points at this server's own placeholder image.
  */
 
-// Unique per run: the relay persists a room's updates in MariaDB, so a fixed
-// id would carry one run's edits (and seed) into the next one's assertions.
-const ROOM_ID = `e2e-room-${randomUUID()}`;
+// The room a context asks for; set per test execution by collaboration.spec.ts.
+// A cookie rather than a header on purpose: the presence roster is fetched
+// cross-origin from the relay, and a custom header would make that request
+// non-simple, so the browser would preflight it and the relay would refuse it.
+const ROOM_COOKIE = 'betteroffice-e2e-room';
+// Only for a request that names no room at all (Vite's own dev client, say).
+const DEFAULT_ROOM_ID = `e2e-room-default-${randomUUID()}`;
 const DEFAULT_TOKEN_TTL_SECONDS = 300;
 const SESSION_PATH = '/index.php/apps/betteroffice/collab/session';
 const ROLE_COOKIE = 'betteroffice-e2e-role';
@@ -51,33 +60,47 @@ const AVATAR_PNG = Buffer.from(
 
 type CollaborationRole = 'read' | 'write';
 
-function requestedRole(request: IncomingMessage): CollaborationRole {
-	const cookies = (request.headers.cookie ?? '').split(';').map((part) => part.trim());
-	return cookies.includes(`${ROLE_COOKIE}=read`) ? 'read' : 'write';
-}
-
-function requestedName(request: IncomingMessage): string {
-	const prefix = `${USER_COOKIE}=`;
+function cookieValue(request: IncomingMessage, name: string): string | null {
+	const prefix = `${name}=`;
 	const cookie = (request.headers.cookie ?? '')
 		.split(';')
 		.map((part) => part.trim())
 		.find((part) => part.startsWith(prefix));
-	const name = cookie?.slice(prefix.length).trim();
+	return cookie === undefined ? null : cookie.slice(prefix.length).trim();
+}
+
+function requestedRole(request: IncomingMessage): CollaborationRole {
+	return cookieValue(request, ROLE_COOKIE) === 'read' ? 'read' : 'write';
+}
+
+function requestedName(request: IncomingMessage): string {
+	const name = cookieValue(request, USER_COOKIE);
 	return name ? decodeURIComponent(name) : 'Alice';
+}
+
+/**
+ * The room this request belongs to. The harness sets `ROOM_COOKIE` on every
+ * context it opens, so two contexts in one test share a room and two tests
+ * never do -- which is what keeps a repeated or parallel run from inheriting
+ * another run's seed and edits (the relay persists both in MariaDB).
+ */
+function requestedRoom(request: IncomingMessage): string {
+	const room = cookieValue(request, ROOM_COOKIE) ?? '';
+	return room === '' ? DEFAULT_ROOM_ID : room;
 }
 
 function base64Url(buffer: Buffer): string {
 	return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function issueToken(ttlSeconds: number, role: CollaborationRole, name: string): string {
+function issueToken(ttlSeconds: number, role: CollaborationRole, name: string, roomId: string): string {
 	const claims = {
 		iid: 'e2e-instance',
 		sub: name.toLowerCase(),
 		name,
 		avatar: `${TEST_RELAY_ORIGIN}${AVATAR_PATH}/${encodeURIComponent(name)}.png`,
 		fid: 1,
-		roomId: ROOM_ID,
+		roomId,
 		format: 'docx',
 		role,
 		exp: Math.floor(Date.now() / 1000) + ttlSeconds,
@@ -105,8 +128,9 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 }
 
 export function mockCollaborationApi(): Plugin {
-	let seed: Buffer | null = null;
-	let tokenTtlSeconds = DEFAULT_TOKEN_TTL_SECONDS;
+	// Per room, not per process: two tests running at once each own theirs.
+	const seeds = new Map<string, Buffer>();
+	const tokenTtls = new Map<string, number>();
 
 	return {
 		name: 'mock-betteroffice-collaboration-api',
@@ -114,13 +138,17 @@ export function mockCollaborationApi(): Plugin {
 			// Test-only control channel, not part of the real app: lets a test
 			// issue short-lived tokens and so reach expiry quickly.
 			server.middlewares.use('/__test__/token-ttl', (request, response) => {
-				const seconds = Number(new URL(request.url ?? '', 'http://localhost').searchParams.get('seconds'));
-				if (!Number.isFinite(seconds) || seconds <= 0) {
+				const params = new URL(request.url ?? '', 'http://localhost').searchParams;
+				const seconds = Number(params.get('seconds'));
+				const room = params.get('room')?.trim() ?? '';
+				// The room is required: a lifetime without one would silently
+				// apply to every room again, which is the bug this replaced.
+				if (!Number.isFinite(seconds) || seconds <= 0 || room === '') {
 					response.statusCode = 400;
 					response.end();
 					return;
 				}
-				tokenTtlSeconds = seconds;
+				tokenTtls.set(room, seconds);
 				response.statusCode = 204;
 				response.end();
 			});
@@ -148,14 +176,16 @@ export function mockCollaborationApi(): Plugin {
 						response.end();
 						return;
 					}
+					const room = requestedRoom(request);
 					void readBody(request).then((offered) => {
 						if (offered.length === 0) {
 							sendJson(response, 400, { message: 'A non-empty seed body is required' });
 							return;
 						}
-						// Create-if-absent: a later client's offer is discarded
-						// in favour of the one already on record.
-						seed ??= offered;
+						// Create-if-absent, per room: a later client's offer is
+						// discarded in favour of the one already on record.
+						const seed = seeds.get(room) ?? offered;
+						seeds.set(room, seed);
 						sendJson(response, 200, { seed: seed.toString('base64') });
 					});
 					return;
@@ -166,12 +196,14 @@ export function mockCollaborationApi(): Plugin {
 					response.end();
 					return;
 				}
+				const room = requestedRoom(request);
 				const role = requestedRole(request);
+				const seed = seeds.get(room);
 				sendJson(response, 200, {
-					roomId: ROOM_ID,
-					token: issueToken(tokenTtlSeconds, role, requestedName(request)),
+					roomId: room,
+					token: issueToken(tokenTtls.get(room) ?? DEFAULT_TOKEN_TTL_SECONDS, role, requestedName(request), room),
 					role,
-					seed: seed === null ? null : seed.toString('base64'),
+					seed: seed === undefined ? null : seed.toString('base64'),
 				});
 			});
 		},
