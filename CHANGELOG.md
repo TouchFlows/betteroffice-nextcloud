@@ -140,34 +140,21 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   The single run went from 43.0s to 21.9–23.3s over three runs; the repeated
   run CI actually executes stays at 43–50s (was 46–49s), because it already
   interleaved both repetitions across the workers -- the split removes the
-  idle worker, it does not reduce the work.
-
-- `[relay]` A harness-only token-revocation route
-  (`POST /__test__/revoke-token`, `relay/src/testControl.ts`), served only
-  when `BETTEROFFICE_RELAY_TEST_CONTROL=1`. A signature cannot be un-signed,
-  so withdrawing a token has to be state the relay holds: the route marks the
-  given `jti`s refused exactly as an expired token is, for presence reads and
-  for new connections alike, while participants already in the room stay.
-  Its purpose is the e2e harness, which can then reach "the relay refuses
-  this token" without waiting out a five-minute lifetime.
+  idle worker, it does not reduce the work. A same-runner A/B -- the four files
+  against the same tests concatenated into one, alternating inside a single CI
+  job -- measured 61s/61s and 55.0s/55.4s, so the layout itself costs nothing;
+  the 66–73s samples before that were slower runners.
 
 ### Fixed
 
-- `[app]` The presence-token-refresh e2e test no longer waits for a token to
-  expire: the mock collaboration API gained
-  `POST /__test__/revoke-token?room=`, which withdraws that room's tokens
-  through the relay's control route, so the test reaches "the relay refuses
-  this token" in one presence refresh instead of a five-second lifetime plus
-  however the refresh loop then lined up with it (12.5s → 6.5–7.3s, and it no
-  longer depends on the clock at all).
-
-- `[app]` The presence-token-refresh e2e test slept a fixed 12 seconds and then
-  gave the roster 10 more, so one number had to cover both the token lifetime
-  and however long the refresh loop then took — and it still timed out on a
-  busy machine. It now waits only past the token's lifetime and polls the
-  observable consequence instead (a second session resolved), which is the
-  thing it actually asserts; the test runs about six seconds faster and no
-  longer depends on how loaded the machine is.
+- `[app]` The presence-token-refresh e2e test no longer sleeps: it gives the
+  room a two-second token lifetime — certainly expired by the roster re-read
+  five seconds later, but long enough for the socket to be admitted with it —
+  and polls for the observable consequence (a second collaboration session
+  resolved), which is the thing it actually asserts. Counting the baseline
+  before the second peer opens is what keeps it to one refresh rather than two
+  (12.6s → 6.8s locally). A fixed sleep had to cover both the token lifetime
+  and the refresh loop, which is what timed out on a busy machine.
 - `[relay]` A read-only participant's rejected edit could still reach the
   room by reconnecting. The relay only refused *Update* frames, but the room
   asks every new peer for its state (`SyncStep1`), so the peer's answer

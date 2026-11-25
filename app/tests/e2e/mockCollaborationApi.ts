@@ -1,8 +1,8 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { DEFAULT_E2E_ROOM_ID, roomCookieValue } from './e2eRoom';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
-import { TEST_RELAY_HTTP_ORIGIN, TEST_RELAY_ORIGIN, TEST_SHARED_SECRET } from './testRelay';
+import { TEST_RELAY_ORIGIN, TEST_SHARED_SECRET } from './testRelay';
 
 /**
  * Stands in for `CollaborationController` (app/lib/Controller/CollaborationController.php)
@@ -31,14 +31,6 @@ import { TEST_RELAY_HTTP_ORIGIN, TEST_RELAY_ORIGIN, TEST_SHARED_SECRET } from '.
  * mockDocumentApi.ts's `force-conflict`), so a test can reach expiry without
  * waiting five minutes -- per room, for the same reason.
  *
- * `POST /__test__/revoke-token?room=<roomId>` withdraws every token this mock
- * has issued for that room so far. A signature cannot be un-signed, so the
- * withdrawal lives where tokens are verified: the mock tells the relay's
- * harness-only control route (`relay/src/testControl.ts`), and the relay then
- * refuses those ids exactly as it refuses expired ones. That is how a test
- * reaches "the relay refuses this token" without waiting out a lifetime at
- * all.
- *
  * A browser context that sends the `betteroffice-e2e-role=read` cookie is
  * treated as a viewer: the real app derives the role from the user's file
  * permissions, which this mock has no Nextcloud to consult, and a per-context
@@ -53,7 +45,6 @@ const SESSION_PATH = '/index.php/apps/betteroffice/collab/session';
 const ROLE_COOKIE = 'betteroffice-e2e-role';
 const USER_COOKIE = 'betteroffice-e2e-user';
 const AVATAR_PATH = '/__test__/avatar';
-const REVOKE_PATH = '/__test__/revoke-token';
 
 /** 1x1 PNG: enough for the editor's presence avatar to load and be asserted on. */
 const AVATAR_PNG = Buffer.from(
@@ -96,7 +87,7 @@ function base64Url(buffer: Buffer): string {
 	return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function issueToken(ttlSeconds: number, role: CollaborationRole, name: string, roomId: string, jti: string): string {
+function issueToken(ttlSeconds: number, role: CollaborationRole, name: string, roomId: string): string {
 	const claims = {
 		iid: 'e2e-instance',
 		sub: name.toLowerCase(),
@@ -107,7 +98,7 @@ function issueToken(ttlSeconds: number, role: CollaborationRole, name: string, r
 		format: 'docx',
 		role,
 		exp: Math.floor(Date.now() / 1000) + ttlSeconds,
-		jti,
+		jti: `e2e-${Date.now()}`,
 	};
 	const header = base64Url(Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
 	const payload = base64Url(Buffer.from(JSON.stringify(claims)));
@@ -134,8 +125,6 @@ export function mockCollaborationApi(): Plugin {
 	// Per room, not per process: two tests running at once each own theirs.
 	const seeds = new Map<string, Buffer>();
 	const tokenTtls = new Map<string, number>();
-	// Per room, so a revocation withdraws that room's tokens and nothing else.
-	const issuedJtis = new Map<string, string[]>();
 
 	return {
 		name: 'mock-betteroffice-collaboration-api',
@@ -156,45 +145,6 @@ export function mockCollaborationApi(): Plugin {
 				tokenTtls.set(room, seconds);
 				response.statusCode = 204;
 				response.end();
-			});
-
-			// Test-only control channel: withdraws the tokens this room has been
-			// issued, so the relay refuses them from then on.
-			server.middlewares.use(REVOKE_PATH, (request, response) => {
-				const params = new URL(request.url ?? '', 'http://localhost').searchParams;
-				const room = params.get('room')?.trim() ?? '';
-				if (request.method !== 'POST' || room === '') {
-					response.statusCode = request.method === 'POST' ? 400 : 405;
-					response.end();
-					return;
-				}
-				const jtis = issuedJtis.get(room) ?? [];
-				void fetch(`${TEST_RELAY_HTTP_ORIGIN}/__test__/revoke-token`, {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ jtis }),
-				}).then(
-					(relayResponse) => {
-						// Otherwise the test waits for a refusal that never comes and
-						// reports the wrong cause; the relay only serves this route
-						// when the harness started it (testRelay.ts).
-						if (!relayResponse.ok) {
-							console.error(
-								`[mock] relay refused to revoke ${jtis.length} token(s): ${relayResponse.status}`,
-							);
-							response.statusCode = 502;
-							response.end();
-							return;
-						}
-						response.statusCode = 204;
-						response.end();
-					},
-					(error: unknown) => {
-						console.error('[mock] could not reach the relay to revoke tokens', error);
-						response.statusCode = 502;
-						response.end();
-					},
-				);
 			});
 
 			// The avatar URL the token carries points here; the relay only passes
@@ -243,19 +193,9 @@ export function mockCollaborationApi(): Plugin {
 				const room = requestedRoom(request);
 				const role = requestedRole(request);
 				const seed = seeds.get(room);
-				const jti = `e2e-${randomUUID()}`;
-				// Recorded so `__test__/revoke-token` withdraws exactly the tokens
-				// this room was issued, and leaves the ones issued after it alone.
-				issuedJtis.set(room, [...(issuedJtis.get(room) ?? []), jti]);
 				sendJson(response, 200, {
 					roomId: room,
-					token: issueToken(
-						tokenTtls.get(room) ?? DEFAULT_TOKEN_TTL_SECONDS,
-						role,
-						requestedName(request),
-						room,
-						jti,
-					),
+					token: issueToken(tokenTtls.get(room) ?? DEFAULT_TOKEN_TTL_SECONDS, role, requestedName(request), room),
 					role,
 					seed: seed === undefined ? null : seed.toString('base64'),
 				});
