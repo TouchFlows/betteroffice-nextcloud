@@ -7,6 +7,9 @@ import type { Room } from './room.js';
 import { verifyCollaborationToken, TokenVerificationError } from './token.js';
 
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
+const MESSAGE_SYNC = 0;
+/** `y-protocols/sync` subtype of an Update frame: the only sync frame that carries an edit. */
+const SYNC_SUBTYPE_UPDATE = 2;
 
 /**
  * Wires the collaboration WebSocket endpoint (`/room/:roomId`) into an
@@ -65,10 +68,22 @@ export function attachCollaborationServer(httpServer: Server, config: RelayServe
 			return false;
 		}
 		// §8.5/§13: a read-only token must never be allowed to submit an
-		// editing update. Awareness (presence) traffic is not an edit, so
-		// read-only participants may still broadcast cursor/selection state
-		// -- only sync-protocol frames (message type 0) are gated.
-		if (role === 'read' && data.byteLength > 0 && data[0] === 0) {
+		// editing update. Only a sync-protocol *Update* frame (message type
+		// 0, sync subtype 2) carries an edit: the sync handshake --
+		// SyncStep1 asking for the room's state, SyncStep2 answering with it
+		// -- must still go through, or a read-only participant could never
+		// receive the document it is supposed to be reading, and every
+		// `CollaborationProvider` sends that handshake the moment it opens.
+		// Awareness (presence) traffic is not an edit either, so read-only
+		// participants may still broadcast cursor/selection state.
+		// Both leading bytes are single-byte varints (the values are well
+		// under 128), so reading them positionally is exact.
+		if (
+			role === 'read' &&
+			data.byteLength >= 2 &&
+			data[0] === MESSAGE_SYNC &&
+			data[1] === SYNC_SUBTYPE_UPDATE
+		) {
 			socket.close(1008, 'Read-only token cannot submit edits');
 			return false;
 		}
