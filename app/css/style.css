@@ -34,6 +34,32 @@
 	color: var(--color-warning, #b26b00);
 }
 
+.betteroffice-collaboration-presence {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 12px;
+	margin: 4px 0 0;
+	padding: 0;
+	list-style: none;
+}
+
+.betteroffice-collaboration-presence__participant {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.betteroffice-collaboration-presence__avatar {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+}
+
+.betteroffice-collaboration-presence__role {
+	font-size: 0.9em;
+	font-style: italic;
+}
+
 .betteroffice-error {
 	padding: 16px;
 }

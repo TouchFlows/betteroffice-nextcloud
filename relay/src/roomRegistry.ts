@@ -25,6 +25,21 @@ export class RoomRegistry {
 		return roomPromise;
 	}
 
+	/**
+	 * The room if it is live in this process, without creating one: presence
+	 * must answer for a room nobody is connected to (an empty list) rather
+	 * than instantiate it and rehydrate its whole update log.
+	 */
+	async peek(roomId: string): Promise<Room | null> {
+		const roomPromise = this.rooms.get(roomId);
+		if (!roomPromise) return null;
+		try {
+			return await roomPromise;
+		} catch {
+			return null;
+		}
+	}
+
 	/** Drops a room that failed or emptied out, so the next join rehydrates fresh. */
 	evict(roomId: string): void {
 		this.rooms.delete(roomId);

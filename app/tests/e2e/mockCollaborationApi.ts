@@ -1,7 +1,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
-import { TEST_SHARED_SECRET } from './testRelay';
+import { TEST_RELAY_ORIGIN, TEST_SHARED_SECRET } from './testRelay';
 
 /**
  * Stands in for `CollaborationController` (app/lib/Controller/CollaborationController.php)
@@ -28,7 +28,10 @@ import { TEST_SHARED_SECRET } from './testRelay';
  * A browser context that sends the `betteroffice-e2e-role=read` cookie is
  * treated as a viewer: the real app derives the role from the user's file
  * permissions, which this mock has no Nextcloud to consult, and a per-context
- * cookie is what lets one test run a writer and a viewer side by side.
+ * cookie is what lets one test run a writer and a viewer side by side. The
+ * `betteroffice-e2e-user` cookie names that context's user, so two contexts
+ * get two distinguishable presence identities (PLAN.md §8.6), and the avatar
+ * URL in the token points at this server's own placeholder image.
  */
 
 // Unique per run: the relay persists a room's updates in MariaDB, so a fixed
@@ -37,6 +40,14 @@ const ROOM_ID = `e2e-room-${randomUUID()}`;
 const DEFAULT_TOKEN_TTL_SECONDS = 300;
 const SESSION_PATH = '/index.php/apps/betteroffice/collab/session';
 const ROLE_COOKIE = 'betteroffice-e2e-role';
+const USER_COOKIE = 'betteroffice-e2e-user';
+const AVATAR_PATH = '/__test__/avatar';
+
+/** 1x1 PNG: enough for the editor's presence avatar to load and be asserted on. */
+const AVATAR_PNG = Buffer.from(
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+	'base64',
+);
 
 type CollaborationRole = 'read' | 'write';
 
@@ -45,14 +56,26 @@ function requestedRole(request: IncomingMessage): CollaborationRole {
 	return cookies.includes(`${ROLE_COOKIE}=read`) ? 'read' : 'write';
 }
 
+function requestedName(request: IncomingMessage): string {
+	const prefix = `${USER_COOKIE}=`;
+	const cookie = (request.headers.cookie ?? '')
+		.split(';')
+		.map((part) => part.trim())
+		.find((part) => part.startsWith(prefix));
+	const name = cookie?.slice(prefix.length).trim();
+	return name ? decodeURIComponent(name) : 'Alice';
+}
+
 function base64Url(buffer: Buffer): string {
 	return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function issueToken(ttlSeconds: number, role: CollaborationRole): string {
+function issueToken(ttlSeconds: number, role: CollaborationRole, name: string): string {
 	const claims = {
 		iid: 'e2e-instance',
-		sub: 'alice',
+		sub: name.toLowerCase(),
+		name,
+		avatar: `${TEST_RELAY_ORIGIN}${AVATAR_PATH}/${encodeURIComponent(name)}.png`,
 		fid: 1,
 		roomId: ROOM_ID,
 		format: 'docx',
@@ -102,6 +125,14 @@ export function mockCollaborationApi(): Plugin {
 				response.end();
 			});
 
+			// The avatar URL the token carries points here; the relay only passes
+			// it through, so this stands in for Nextcloud's core avatar route.
+			server.middlewares.use(AVATAR_PATH, (_request, response) => {
+				response.statusCode = 200;
+				response.setHeader('Content-Type', 'image/png');
+				response.end(AVATAR_PNG);
+			});
+
 			server.middlewares.use(SESSION_PATH, (request, response) => {
 				const path = (request.url ?? '').split('?')[0];
 				const match = path.match(/^\/1(\/seed)?$/);
@@ -138,7 +169,7 @@ export function mockCollaborationApi(): Plugin {
 				const role = requestedRole(request);
 				sendJson(response, 200, {
 					roomId: ROOM_ID,
-					token: issueToken(tokenTtlSeconds, role),
+					token: issueToken(tokenTtlSeconds, role, requestedName(request)),
 					role,
 					seed: seed === null ? null : seed.toString('base64'),
 				});

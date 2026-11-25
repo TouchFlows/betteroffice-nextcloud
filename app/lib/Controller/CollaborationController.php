@@ -15,6 +15,7 @@ use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\Attribute\NoAdminRequired;
 use OCP\AppFramework\Http\JSONResponse;
 use OCP\IRequest;
+use OCP\IURLGenerator;
 use OCP\IUserSession;
 
 /**
@@ -31,16 +32,18 @@ class CollaborationController extends Controller {
 		private IUserSession $userSession,
 		private FileAccessService $fileAccess,
 		private RoomService $rooms,
+		private IURLGenerator $urlGenerator,
 	) {
 		parent::__construct($appName, $request);
 	}
 
 	#[NoAdminRequired]
 	public function session(int $fileId): JSONResponse {
-		$userId = $this->userSession->getUser()?->getUID();
-		if ($userId === null) {
+		$user = $this->userSession->getUser();
+		if ($user === null) {
 			return new JSONResponse(['message' => 'Not authenticated'], Http::STATUS_UNAUTHORIZED);
 		}
+		$userId = $user->getUID();
 
 		try {
 			$file = $this->fileAccess->getReadableFile($userId, $fileId);
@@ -61,7 +64,19 @@ class CollaborationController extends Controller {
 
 		return new JSONResponse([
 			'roomId' => $session->getRoomId(),
-			'token' => $this->rooms->issueToken($session, $userId, $role),
+			// Presence identity (§8.6): the avatar is a public core route, so
+			// peers can render it with no more permission than the file access
+			// they already proved by getting this token.
+			'token' => $this->rooms->issueToken(
+				$session,
+				$userId,
+				$role,
+				$user->getDisplayName(),
+				$this->urlGenerator->linkToRouteAbsolute('core.Avatar.getAvatar', [
+					'userId' => $userId,
+					'size' => 64,
+				]),
+			),
 			'role' => $role,
 			'seed' => $session->getSeed() === null ? null : base64_encode($session->getSeed()),
 		]);

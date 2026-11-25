@@ -83,11 +83,24 @@ class RoomService {
 	 * Short-lived HS256 token (§8.5), verified by `relay/src/token.ts`.
 	 * Hand-rolled rather than a JWT library on either side -- see that
 	 * file's own docblock.
+	 *
+	 * `$displayName` and `$avatarUrl` are the presence identity (§8.6). They
+	 * are signed here, by the authority on who this user is, so the relay can
+	 * report collaborators without trusting anything a browser sends about
+	 * itself -- and without the relay needing Nextcloud credentials.
 	 */
-	public function issueToken(Session $session, string $userId, string $role): string {
+	public function issueToken(
+		Session $session,
+		string $userId,
+		string $role,
+		string $displayName,
+		string $avatarUrl,
+	): string {
 		$claims = [
 			'iid' => $session->getInstanceId(),
 			'sub' => $userId,
+			'name' => $displayName,
+			'avatar' => $avatarUrl,
 			'fid' => $session->getFileId(),
 			'roomId' => $session->getRoomId(),
 			'format' => $session->getFormat(),

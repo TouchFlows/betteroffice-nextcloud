@@ -305,10 +305,14 @@ test.describe('docx: read-only participant', () => {
 
 		const writerContext = await browser.newContext();
 		const viewerContext = await browser.newContext();
-		// The real app derives the role from the user's file permissions; the
-		// mock has no Nextcloud to consult, so a per-context cookie tells it
-		// which of these two sessions is the viewer.
-		await viewerContext.addCookies([{ name: 'betteroffice-e2e-role', value: 'read', url: ORIGIN }]);
+		// The real app derives the role and display name from the user's file
+		// permissions and account; the mock has no Nextcloud to consult, so
+		// per-context cookies tell it which of these two sessions is the
+		// read-only viewer, and who they are (PLAN.md §8.6).
+		await viewerContext.addCookies([
+			{ name: 'betteroffice-e2e-role', value: 'read', url: ORIGIN },
+			{ name: 'betteroffice-e2e-user', value: 'Bob', url: ORIGIN },
+		]);
 		// A rejection is the relay closing this viewer's socket, and the close
 		// code is the only place that is observable from the page.
 		await viewerContext.addInitScript(() => {
@@ -338,6 +342,25 @@ test.describe('docx: read-only participant', () => {
 			// mean the relay delivered the update to a read-only token.
 			await openEditor(viewer);
 			await expect.poll(() => firstParagraphText(viewer), { timeout: 20_000 }).toContain('[from-writer]');
+
+			// Presence (PLAN.md §8.6): each side lists the *other* participant
+			// with the display name and role signed into that participant's
+			// token, and renders the avatar the token carries.
+			const bob = writer.locator('[data-collaboration-role="read"]');
+			await expect(bob).toContainText('Bob', { timeout: 20_000 });
+			await expect(writer.locator('[data-collaboration-presence]')).toHaveAttribute('data-collaboration-presence', '1');
+			await expect(viewer.locator('[data-collaboration-role="write"]')).toContainText('Alice', {
+				timeout: 20_000,
+			});
+			await expect
+				.poll(
+					() =>
+						bob
+							.locator('.betteroffice-collaboration-presence__avatar')
+							.evaluate((image: HTMLImageElement) => image.naturalWidth),
+					{ timeout: 20_000 },
+				)
+				.toBeGreaterThan(0);
 
 			await appendText(viewer, ' [from-viewer]');
 			expect(await firstParagraphText(viewer), 'the viewer never attempted an edit').toContain('[from-viewer]');

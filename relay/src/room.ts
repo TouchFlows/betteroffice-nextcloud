@@ -13,6 +13,18 @@ const MESSAGE_AWARENESS = 1;
 const CHECKPOINT_EVERY = 20;
 
 /**
+ * Who is behind one connection, as proved by its collaboration token
+ * (PLAN.md §8.6). `userId` never leaves the relay -- presence reports the
+ * display name, avatar and role only.
+ */
+export interface RoomParticipant {
+	userId: string;
+	name: string;
+	avatar: string | null;
+	role: 'read' | 'write';
+}
+
+/**
  * One collaboration room: a Yjs doc fed by whatever CRDT updates the
  * BetterOffice client replicas emit (the relay never needs to know DOCX/
  * XLSX/PPTX semantics, only the generic Yjs update wire format they share),
@@ -32,6 +44,7 @@ export class Room {
 	readonly awareness = new awarenessProtocol.Awareness(this.doc);
 	private readonly peers = new Set<WebSocket>();
 	private readonly controlledIds = new Map<WebSocket, Set<number>>();
+	private readonly participants = new Map<WebSocket, RoomParticipant>();
 	private updatesSinceCheckpoint = 0;
 	private persistQueue: Promise<void> = Promise.resolve();
 	private failed = false;
@@ -104,8 +117,9 @@ export class Room {
 		this.updatesSinceCheckpoint = 0;
 	}
 
-	join(socket: WebSocket): void {
+	join(socket: WebSocket, participant: RoomParticipant): void {
 		this.peers.add(socket);
+		this.participants.set(socket, participant);
 
 		const syncEncoder = encoding.createEncoder();
 		encoding.writeVarUint(syncEncoder, MESSAGE_SYNC);
@@ -160,6 +174,7 @@ export class Room {
 
 	leave(socket: WebSocket): void {
 		this.peers.delete(socket);
+		this.participants.delete(socket);
 		const ids = this.controlledIds.get(socket);
 		this.controlledIds.delete(socket);
 		if (ids && ids.size > 0) {
@@ -169,6 +184,11 @@ export class Room {
 
 	get peerCount(): number {
 		return this.peers.size;
+	}
+
+	/** Every connected peer's identity, one entry per socket (deduplicated by the presence endpoint). */
+	get connectedParticipants(): RoomParticipant[] {
+		return Array.from(this.participants.values());
 	}
 
 	/** True once every connected peer has left -- the registry can safely evict it. */

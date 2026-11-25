@@ -4,10 +4,12 @@ import * as Y from 'yjs';
 import * as encoding from 'lib0/encoding';
 import * as syncProtocol from 'y-protocols/sync.js';
 import type { WebSocket } from 'ws';
-import { Room } from '../src/room.js';
+import { Room, type RoomParticipant } from '../src/room.js';
 import type { RoomStore } from '../src/store.js';
 
 const MESSAGE_SYNC = 0;
+
+const WRITER: RoomParticipant = { userId: 'alice', name: 'Alice', avatar: null, role: 'write' };
 
 /** Enough of `ws`'s `WebSocket` for `Room` to drive: readyState + send() + close(). */
 class FakeSocket {
@@ -82,8 +84,8 @@ test('an update is persisted before it is broadcast, and never echoed back to it
 	try {
 		const sender = new FakeSocket();
 		const other = new FakeSocket();
-		room.join(sender as unknown as WebSocket);
-		room.join(other as unknown as WebSocket);
+		room.join(sender as unknown as WebSocket, WRITER);
+		room.join(other as unknown as WebSocket, { ...WRITER, userId: 'bob', name: 'Bob' });
 		sender.sent.length = 0;
 		other.sent.length = 0;
 
@@ -106,7 +108,7 @@ test('a persistence failure closes every connection instead of broadcasting an u
 	const room = await Room.create('room-3', store as unknown as RoomStore);
 	try {
 		const a = new FakeSocket();
-		room.join(a as unknown as WebSocket);
+		room.join(a as unknown as WebSocket, WRITER);
 
 		room.doc.getText('body').insert(0, 'x');
 		await flush();
@@ -123,7 +125,7 @@ test('join sends sync step 1, sync step 2, and the room\'s own (initially empty)
 	const room = await Room.create('room-4', store as unknown as RoomStore);
 	try {
 		const a = new FakeSocket();
-		room.join(a as unknown as WebSocket);
+		room.join(a as unknown as WebSocket, WRITER);
 		// y-protocols' Awareness constructor calls setLocalState({}) on
 		// itself, so a brand new room already has one awareness entry --
 		// join() always sends 3 frames, not 2, even before any real peer
@@ -134,12 +136,38 @@ test('join sends sync step 1, sync step 2, and the room\'s own (initially empty)
 	}
 });
 
+test('join records the participant identity, and leave forgets it', async () => {
+	const store = new FakeStore();
+	const room = await Room.create('room-participants', store as unknown as RoomStore);
+	try {
+		const a = new FakeSocket();
+		const b = new FakeSocket();
+		room.join(a as unknown as WebSocket, WRITER);
+		room.join(b as unknown as WebSocket, {
+			userId: 'bob',
+			name: 'Bob',
+			avatar: 'https://cloud.example.test/index.php/avatar/bob/64',
+			role: 'read',
+		});
+
+		assert.deepEqual(
+			room.connectedParticipants.map((participant) => [participant.name, participant.role]).sort(),
+			[['Alice', 'write'], ['Bob', 'read']],
+		);
+
+		room.leave(b as unknown as WebSocket);
+		assert.deepEqual(room.connectedParticipants.map((participant) => participant.name), ['Alice']);
+	} finally {
+		room.destroy();
+	}
+});
+
 test('leave removes the peer and reports the room as empty', async () => {
 	const store = new FakeStore();
 	const room = await Room.create('room-5', store as unknown as RoomStore);
 	try {
 		const a = new FakeSocket();
-		room.join(a as unknown as WebSocket);
+		room.join(a as unknown as WebSocket, WRITER);
 		assert.equal(room.isEmpty, false);
 		room.leave(a as unknown as WebSocket);
 		assert.equal(room.isEmpty, true);
@@ -154,8 +182,8 @@ test('receive() applies an incoming sync update from one peer and persists it', 
 	try {
 		const sender = new FakeSocket();
 		const other = new FakeSocket();
-		room.join(sender as unknown as WebSocket);
-		room.join(other as unknown as WebSocket);
+		room.join(sender as unknown as WebSocket, WRITER);
+		room.join(other as unknown as WebSocket, { ...WRITER, userId: 'bob', name: 'Bob' });
 		other.sent.length = 0;
 
 		const senderDoc = new Y.Doc();
