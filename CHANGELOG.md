@@ -83,6 +83,13 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   literal pattern as a missing file. Switched to Node's own built-in test
   discovery (`node --test` with no path argument) instead of relying on the
   shell to glob it.
+- `[app]` A dropped collaboration connection never came back, and could not
+  have: the provider only reports the status change (its bundled source has
+  no retry), and the transport resolved its relay URL once — so a reconnect
+  after the five-minute token expired was rejected by the relay forever and
+  the editor sat on "Reconnecting…". The transport now resolves a fresh
+  session URL and token per connection attempt, and `EditorApp` drives
+  reconnection with a capped backoff.
 - `[relay]` A read-only token could not connect at all: the frame gate
   rejected every sync-protocol frame, including the SyncStep1 handshake a
   `CollaborationProvider` sends the moment it opens, so a viewer was closed

@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { TEST_SHARED_SECRET } from './testRelay';
@@ -19,17 +19,24 @@ import { TEST_SHARED_SECRET } from './testRelay';
  *   wins and every later caller gets that same seed back (the PHP side's
  *   atomic `trySetSeed` semantics), which is what makes two clients converge
  *   instead of each seeding their own room.
+ *
+ * The token lifetime is configurable through a test-only control channel
+ * (`POST /__test__/token-ttl?seconds=N`, like mockDocumentApi.ts's
+ * `force-conflict`), so a test can reach expiry without waiting five
+ * minutes.
  */
 
-const ROOM_ID = 'e2e-room-1';
-const TOKEN_TTL_SECONDS = 300;
+// Unique per run: the relay persists a room's updates in MariaDB, so a fixed
+// id would carry one run's edits (and seed) into the next one's assertions.
+const ROOM_ID = `e2e-room-${randomUUID()}`;
+const DEFAULT_TOKEN_TTL_SECONDS = 300;
 const SESSION_PATH = '/index.php/apps/betteroffice/collab/session';
 
 function base64Url(buffer: Buffer): string {
 	return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function issueToken(): string {
+function issueToken(ttlSeconds: number): string {
 	const claims = {
 		iid: 'e2e-instance',
 		sub: 'alice',
@@ -37,7 +44,7 @@ function issueToken(): string {
 		roomId: ROOM_ID,
 		format: 'docx',
 		role: 'write',
-		exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS,
+		exp: Math.floor(Date.now() / 1000) + ttlSeconds,
 		jti: `e2e-${Date.now()}`,
 	};
 	const header = base64Url(Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
@@ -63,10 +70,25 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 
 export function mockCollaborationApi(): Plugin {
 	let seed: Buffer | null = null;
+	let tokenTtlSeconds = DEFAULT_TOKEN_TTL_SECONDS;
 
 	return {
 		name: 'mock-betteroffice-collaboration-api',
 		configureServer(server) {
+			// Test-only control channel, not part of the real app: lets a test
+			// issue short-lived tokens and so reach expiry quickly.
+			server.middlewares.use('/__test__/token-ttl', (request, response) => {
+				const seconds = Number(new URL(request.url ?? '', 'http://localhost').searchParams.get('seconds'));
+				if (!Number.isFinite(seconds) || seconds <= 0) {
+					response.statusCode = 400;
+					response.end();
+					return;
+				}
+				tokenTtlSeconds = seconds;
+				response.statusCode = 204;
+				response.end();
+			});
+
 			server.middlewares.use(SESSION_PATH, (request, response) => {
 				const path = (request.url ?? '').split('?')[0];
 				const match = path.match(/^\/1(\/seed)?$/);
@@ -102,7 +124,7 @@ export function mockCollaborationApi(): Plugin {
 				}
 				sendJson(response, 200, {
 					roomId: ROOM_ID,
-					token: issueToken(),
+					token: issueToken(tokenTtlSeconds),
 					role: 'write',
 					seed: seed === null ? null : seed.toString('base64'),
 				});
