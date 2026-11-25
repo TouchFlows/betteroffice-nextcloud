@@ -1,32 +1,82 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import axios, { isAxiosError } from '@nextcloud/axios';
 import { getCurrentUser } from '@nextcloud/auth';
 import { generateUrl } from '@nextcloud/router';
 import { translate as t } from '@nextcloud/l10n';
 import { DocxEditor, type DocxEditorRef } from '@betteroffice/docx-react';
 import '@betteroffice/docx-react/styles.css';
+import {
+	CollaborationProvider,
+	type CollaborationReplica,
+	type CollaborationStatus,
+} from '@betteroffice/docx/collaboration';
+import { WsCollaborationTransport } from './collaboration/transport';
+import {
+	relaySocketUrl,
+	requestCollaborationSession,
+	resolveInitialUpdate,
+	type CollaborationSession,
+} from './collaboration/session';
 
 export interface EditorAppProps {
 	fileId: number;
 	fileName: string;
 	readOnly: boolean;
+	/** Relay base URL from the server (`data-relay-url`); empty means collaboration is not configured. */
+	relayUrl?: string;
+	/**
+	 * Hands the live editor handle to an embedding host. The e2e harness uses
+	 * it to read and edit the document directly; production code has no need
+	 * for it.
+	 */
+	onEditorRef?: (ref: RefObject<DocxEditorRef | null>) => void;
 }
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'conflict' | 'error';
+
+type CollaborationState =
+	| { phase: 'disabled' }
+	| { phase: 'preparing' }
+	| { phase: 'live'; status: CollaborationStatus; synced: boolean; peers: number }
+	| { phase: 'failed' };
 
 function documentUrl(fileId: number): string {
 	return generateUrl('/apps/betteroffice/document/{fileId}', { fileId });
 }
 
-export function EditorApp({ fileId, fileName, readOnly }: EditorAppProps) {
+export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorRef }: EditorAppProps) {
 	const editorRef = useRef<DocxEditorRef>(null);
+	const providerRef = useRef<CollaborationProvider | null>(null);
 	const [documentBuffer, setDocumentBuffer] = useState<ArrayBuffer>();
 	const [etag, setEtag] = useState<string>();
 	const [loadError, setLoadError] = useState<string>();
 	const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+	const [session, setSession] = useState<CollaborationSession>();
+	const [initialUpdate, setInitialUpdate] = useState<Uint8Array>();
+	const [collaboration, setCollaboration] = useState<CollaborationState>(
+		relayUrl === '' ? { phase: 'disabled' } : { phase: 'preparing' },
+	);
+
+	// One identity per mount: the seed this client offers (if it wins the
+	// create-if-absent race) and the replica it then opens must be the same
+	// client id, or the room would carry two different histories from one
+	// browser.
+	const clientId = useMemo(() => 1 + Math.floor(Math.random() * 0x7ffffffe), []);
+	const authorName = useMemo(
+		() => getCurrentUser()?.displayName ?? getCurrentUser()?.uid ?? t('betteroffice', 'Someone'),
+		[],
+	);
+
+	useEffect(() => {
+		onEditorRef?.(editorRef);
+	}, [onEditorRef]);
 
 	useEffect(() => {
 		let cancelled = false;
+		setDocumentBuffer(undefined);
+		setInitialUpdate(undefined);
+		setSession(undefined);
 		axios
 			.get<ArrayBuffer>(documentUrl(fileId), { responseType: 'arraybuffer' })
 			.then((response) => {
@@ -41,6 +91,84 @@ export function EditorApp({ fileId, fileName, readOnly }: EditorAppProps) {
 			cancelled = true;
 		};
 	}, [fileId]);
+
+	// §8.2 steps 1-7, in order: the document is already loaded (step 1) and
+	// its ETag read (step 2); this resolves the room, the seed (generating one
+	// only if the room has none) and the token, before the editor opens. The
+	// provider connects in step 8, from `handleReplica`.
+	useEffect(() => {
+		if (!documentBuffer) return;
+		if (relayUrl === '') {
+			setCollaboration({ phase: 'disabled' });
+			return;
+		}
+
+		let cancelled = false;
+		setCollaboration({ phase: 'preparing' });
+		void (async () => {
+			try {
+				const resolved = await requestCollaborationSession(fileId);
+				const seed = await resolveInitialUpdate(fileId, resolved, documentBuffer, clientId);
+				if (cancelled) return;
+				setSession(resolved);
+				setInitialUpdate(seed);
+				setCollaboration({ phase: 'live', status: 'connecting', synced: false, peers: 0 });
+			} catch (error) {
+				if (cancelled) return;
+				// Collaboration is not a precondition for editing: a relay that
+				// is down or not configured yet must not take the document
+				// away. Fall back to the non-collaborative editor and say so.
+				console.warn('[betteroffice] collaboration unavailable, editing without it', error);
+				setCollaboration({ phase: 'failed' });
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [documentBuffer, fileId, relayUrl, clientId]);
+
+	useEffect(
+		() => () => {
+			providerRef.current?.destroy();
+			providerRef.current = null;
+		},
+		[],
+	);
+
+	const handleReplica = useCallback(
+		(replica: CollaborationReplica | null) => {
+			providerRef.current?.destroy();
+			providerRef.current = null;
+			if (!replica || !session || relayUrl === '') return;
+
+			const transport = new WsCollaborationTransport(
+				relaySocketUrl(relayUrl, session.roomId, session.token),
+			);
+			const provider = new CollaborationProvider(replica, transport, { user: { name: authorName } });
+			provider.onStatus(({ status, synced }) => {
+				setCollaboration((current) => (current.phase === 'live' ? { ...current, status, synced } : current));
+			});
+			provider.onPeers((peers) => {
+				setCollaboration((current) => (current.phase === 'live' ? { ...current, peers: peers.length } : current));
+			});
+			provider.connect();
+			providerRef.current = provider;
+		},
+		[relayUrl, session, authorName],
+	);
+
+	// A fresh object here would re-open the editor on every render, so it is
+	// memoised on exactly what the editor reads once.
+	const collaborationOptions = useMemo(() => {
+		if (!initialUpdate) return undefined;
+		return {
+			clientId,
+			user: { name: authorName },
+			initialUpdate,
+			onReplica: handleReplica,
+		};
+	}, [initialUpdate, clientId, authorName, handleReplica]);
 
 	const handleSave = async (buffer: ArrayBuffer) => {
 		if (!etag) return;
@@ -63,16 +191,20 @@ export function EditorApp({ fileId, fileName, readOnly }: EditorAppProps) {
 	if (!documentBuffer) {
 		return <div className="betteroffice-editor-message">{t('betteroffice', 'Loading…')}</div>;
 	}
+	if (collaboration.phase === 'preparing') {
+		return <div className="betteroffice-editor-message">{t('betteroffice', 'Connecting to collaborators…')}</div>;
+	}
 
 	return (
 		<div className="betteroffice-editor">
 			<SaveStatusBanner status={saveStatus} />
+			<CollaborationStatusBar state={collaboration} />
 			<DocxEditor
 				ref={editorRef}
 				documentBuffer={documentBuffer}
 				documentName={fileName}
 				readOnly={readOnly}
-				author={getCurrentUser()?.displayName ?? getCurrentUser()?.uid}
+				author={authorName}
 				downloadOnSave={false}
 				onSaveRequest={() => true}
 				onSave={(buffer) => {
@@ -81,6 +213,7 @@ export function EditorApp({ fileId, fileName, readOnly }: EditorAppProps) {
 				onError={() => {
 					setSaveStatus((current) => (current === 'saving' ? 'error' : current));
 				}}
+				collaboration={collaborationOptions}
 			/>
 		</div>
 	);
@@ -95,4 +228,47 @@ function SaveStatusBanner({ status }: { status: SaveStatus }) {
 		error: t('betteroffice', 'Save failed. Try again.'),
 	};
 	return <div className={`betteroffice-save-status betteroffice-save-status--${status}`}>{messages[status]}</div>;
+}
+
+/**
+ * Minimal presence indicator (PLAN.md §8.6): connection state and how many
+ * other people are in the room. Full presence (avatars, per-user read/write
+ * status) is Phase 4+ work; this is deliberately just enough for a user to
+ * tell whether their edits are reaching anyone.
+ */
+function CollaborationStatusBar({ state }: { state: CollaborationState }) {
+	if (state.phase === 'disabled') return null;
+	if (state.phase === 'preparing') {
+		return (
+			<div className="betteroffice-collaboration-status" data-collaboration-status="preparing">
+				{t('betteroffice', 'Connecting to collaborators…')}
+			</div>
+		);
+	}
+	if (state.phase === 'failed') {
+		return (
+			<div
+				className="betteroffice-collaboration-status betteroffice-collaboration-status--offline"
+				data-collaboration-status="unavailable"
+				data-collaboration-synced="0"
+				data-collaboration-peers="0"
+			>
+				{t('betteroffice', 'Live collaboration is unavailable right now — you are editing on your own. Saving still works.')}
+			</div>
+		);
+	}
+
+	const live = state.status === 'connected' && state.synced;
+	return (
+		<div
+			className={`betteroffice-collaboration-status${live ? '' : ' betteroffice-collaboration-status--offline'}`}
+			data-collaboration-status={live ? 'connected' : state.status}
+			data-collaboration-synced={live ? '1' : '0'}
+			data-collaboration-peers={state.peers}
+		>
+			{live
+				? t('betteroffice', 'Live collaboration — {count} other editor(s) here', { count: state.peers })
+				: t('betteroffice', 'Reconnecting to collaborators…')}
+		</div>
+	);
 }
