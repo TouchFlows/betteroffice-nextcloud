@@ -217,6 +217,15 @@ test('presence requires a token for that room, from the configured origin', asyn
 		);
 		assert.equal(forged.status, 401);
 
+		// The editor distinguishes "this token is dead, ask for a new session"
+		// from a network failure by the status, so a refusal to the allowed
+		// origin has to be readable by it -- without the CORS header the browser
+		// reports an opaque failure instead and the client can never recover.
+		for (const refused of [anonymous, wrongRoom, forged]) {
+			assert.equal(refused.headers['access-control-allow-origin'], ALLOWED_ORIGIN);
+			assert.equal(refused.headers['cache-control'], 'no-store');
+		}
+
 		// A page on any other origin must not even be able to read the answer,
 		// so it gets no CORS header at all.
 		const foreignOrigin = await getPresence(port, roomId, `?token=${token({ roomId, role: 'write' })}`, {

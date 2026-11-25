@@ -56,16 +56,27 @@ async function respond(
 ): Promise<void> {
 	// §13 "Strict Origin validation": a page on any other origin must not be
 	// able to read this, so the allow-list is applied before anything else and
-	// a rejected request gets no CORS header at all.
+	// a request from a foreign origin gets no CORS header at all.
 	if (request.headers.origin !== config.allowedOrigin) {
 		response.writeHead(403);
 		response.end();
 		return;
 	}
 
-	if (!token) {
-		response.writeHead(401);
+	// A refusal *to* the allowed origin is readable by it on purpose: the
+	// editor has to tell "this token is dead, resolve a new session" (401/403)
+	// apart from a network failure. Without the header the browser turns the
+	// status into an opaque CORS error, and the client cannot react to it.
+	const refuse = (status: number): void => {
+		response.writeHead(status, {
+			'cache-control': 'no-store',
+			'access-control-allow-origin': config.allowedOrigin,
+		});
 		response.end();
+	};
+
+	if (!token) {
+		refuse(401);
 		return;
 	}
 
@@ -73,16 +84,14 @@ async function respond(
 	try {
 		const claims = verifyCollaborationToken(token, config.sharedSecret);
 		if (claims.roomId !== roomId) {
-			response.writeHead(403);
-			response.end();
+			refuse(403);
 			return;
 		}
 		userId = claims.sub;
 	} catch (error) {
 		const reason = error instanceof TokenVerificationError ? error.reason : 'malformed';
 		console.warn(`[relay] room ${roomId}: presence request rejected (token ${reason})`);
-		response.writeHead(401);
-		response.end();
+		refuse(401);
 		return;
 	}
 

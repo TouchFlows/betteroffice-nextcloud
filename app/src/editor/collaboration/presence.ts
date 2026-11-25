@@ -36,6 +36,18 @@ export function presenceUrl(relayUrl: string, roomId: string): string {
 	return `${base}/room/${encodeURIComponent(roomId)}/presence`;
 }
 
+/**
+ * The relay refused this token (401) or the token is not for this room (403).
+ * Neither can be fixed by asking again with the same token, so the caller can
+ * tell this apart from a transient failure and resolve a new session instead.
+ */
+export class PresenceAuthError extends Error {
+	constructor(readonly status: number) {
+		super(`Presence request was refused: ${status}`);
+		this.name = 'PresenceAuthError';
+	}
+}
+
 export async function fetchPresence(
 	relayUrl: string,
 	roomId: string,
@@ -47,6 +59,9 @@ export async function fetchPresence(
 		credentials: 'omit',
 		headers: { Accept: 'application/json' },
 	});
+	if (response.status === 401 || response.status === 403) {
+		throw new PresenceAuthError(response.status);
+	}
 	if (!response.ok) {
 		throw new Error(`Presence request failed: ${response.status}`);
 	}
