@@ -1,16 +1,10 @@
-import {
-	test as base,
-	expect,
-	type APIRequestContext,
-	type Browser,
-	type BrowserContext,
-	type Page,
-} from '@playwright/test';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { E2E_ORIGIN } from './e2eRoom';
+import { newContext, test } from './fixtures';
 import { TEST_RELAY_URL } from './testRelay';
 
 /**
@@ -37,32 +31,7 @@ const DOCUMENT_PATH = '/index.php/apps/betteroffice/document/1';
 const EDITOR_PATH = `/?fileId=1&fileName=demo.docx&relayUrl=${encodeURIComponent(TEST_RELAY_URL)}`;
 // Matches playwright.config.ts's baseURL; needed as an absolute origin to
 // scope a browser context's cookie to the harness.
-const ORIGIN = 'http://localhost:5184';
-
-/**
- * Each test execution gets its own collaboration room: the mock hands out the
- * room this context asks for (`mockCollaborationApi.ts`), so a repeated or
- * parallel run cannot inherit another run's seed and edits.
- */
-// A cookie, not a header: the presence roster is fetched cross-origin from the
-// relay, and a custom header would make that request non-simple (preflighted,
-// and refused by the relay). `credentials: 'omit'` keeps it off the relay.
-const ROOM_COOKIE = 'betteroffice-e2e-room';
-
-const test = base.extend<{ room: string }>({
-	room: async ({ context }, use) => {
-		const room = `e2e-room-${randomUUID()}`;
-		await context.addCookies([{ name: ROOM_COOKIE, value: room, url: ORIGIN }]);
-		await use(room);
-	},
-});
-
-/** Another context in the same test, joining the same room. */
-async function newContext(browser: Browser, room: string): Promise<BrowserContext> {
-	const context = await browser.newContext();
-	await context.addCookies([{ name: ROOM_COOKIE, value: room, url: ORIGIN }]);
-	return context;
-}
+const ORIGIN = E2E_ORIGIN;
 
 interface ParagraphRead {
 	ok: boolean;
@@ -155,9 +124,14 @@ function tokenExpiry(token: string): number {
 	return payload.exp;
 }
 
-/** Reads what was actually written to the (mock) Nextcloud file and unzips its body. */
-async function savedDocumentXml(request: APIRequestContext): Promise<string> {
-	const response = await request.get(DOCUMENT_PATH);
+/**
+ * Reads what was actually written to the (mock) Nextcloud file and unzips its
+ * body. The room is named explicitly: Playwright's standalone `request`
+ * context does not carry the browser context's cookies, so without it the
+ * read would answer for a different room than the page saved into.
+ */
+async function savedDocumentXml(request: APIRequestContext, room: string): Promise<string> {
+	const response = await request.get(`${DOCUMENT_PATH}?room=${room}`);
 	expect(response.ok()).toBe(true);
 	const bytes = await response.body();
 
@@ -213,7 +187,7 @@ test.describe('docx: two browsers through the real relay', () => {
 			// bytes on the "server" are a real DOCX: unzip it and check that
 			// both peers' edits are in the document body itself.
 			await saveThroughApp(alice);
-			let documentXml = await savedDocumentXml(request);
+			let documentXml = await savedDocumentXml(request, room);
 			expect(documentXml).toContain('from-alice');
 			expect(documentXml).toContain('from-bob');
 
@@ -225,7 +199,7 @@ test.describe('docx: two browsers through the real relay', () => {
 			await waitForEditor(bob);
 			await saveThroughApp(bob);
 
-			documentXml = await savedDocumentXml(request);
+			documentXml = await savedDocumentXml(request, room);
 			expect(documentXml).toContain('from-alice');
 			expect(documentXml).toContain('from-bob');
 		} finally {

@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './fixtures';
 
 /**
  * These exercise EditorApp's own wiring (fetch-on-load, the Ctrl+S save
@@ -32,11 +33,11 @@ test('Ctrl+S saves through the document API and reports saved', async ({ page })
 	await expect(page.locator('.betteroffice-save-status--error')).toHaveCount(0);
 });
 
-test('a conflicting save surfaces the conflict message instead of overwriting', async ({ page, request }) => {
+test('a conflicting save surfaces the conflict message instead of overwriting', async ({ page, request, room }) => {
 	await page.goto('/?fileId=1&fileName=demo.docx');
 	await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible({ timeout: 15_000 });
 
-	await request.post('/__test__/force-conflict');
+	await request.post(`/__test__/force-conflict?room=${room}`);
 	await page.getByRole('textbox', { name: 'Document input' }).focus();
 	await page.keyboard.press('ControlOrMeta+s');
 

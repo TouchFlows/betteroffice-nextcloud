@@ -126,6 +126,14 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   test), and the mock's seeds and token lifetimes are keyed by it — a cookie
   rather than a header because a custom header makes the cross-origin
   presence request non-simple and the relay refuses the preflight.
+- `[app]` The document e2e mock kept one saved document and ETag per
+  dev-server process, so a repeated or parallel run started from the previous
+  run's text and checked its save against the previous run's ETag. Its bytes,
+  ETag and forced conflict are now keyed by the same per-test room the
+  collaboration mock uses (a shared `fixtures.ts` sets the room for every
+  test, including ones that never name it), and the `force-conflict` control
+  endpoint requires one (`?room=`) like `token-ttl`. `--repeat-each=2` across
+  the whole suite now passes.
 - `[app]` The editor page now ships a Content-Security-Policy that lets it
   work inside a real Nextcloud at all: `'wasm-unsafe-eval'` for the
   WebAssembly engine and the configured relay's origin in `connect-src`.
