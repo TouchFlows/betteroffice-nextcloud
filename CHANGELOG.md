@@ -92,6 +92,14 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   about itself is used: the awareness channel still carries cursors, but the
   roster comes from the verified token.
 
+- `[app]` `npm run test:live` (`app/tests/live/presence-avatar.mjs`): a
+  repeatable two-user presence check against a real Nextcloud. It logs both
+  accounts in through Nextcloud's own login form, opens the same shared
+  document in each, and asserts the other participant's avatar actually
+  paints from Nextcloud's avatar route. It also fails loudly, naming the CSP
+  violation, when the editor page's policy is missing — the failure that
+  silently disabled the editor on a live instance.
+
 ### Fixed
 
 - `[app]` The editor page now ships a Content-Security-Policy that lets it

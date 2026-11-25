@@ -5,13 +5,12 @@
 - PHP 8.3–8.5 (Nextcloud 35 requires at minimum 8.3), Composer 2.x
 - Node 20, 22 or 24 (see each `package.json`'s `engines` field)
 - A local Nextcloud 31–35 install to mount `app/` into, to test the actual
-  Files integration (file action, routes, controllers) in a real Nextcloud.
-  **Not available in this environment** (no Docker) — `app/`'s PHP is only
-  verified against mocked OCP interfaces (`app/tests/Unit`) and its editor
-  frontend only against a standalone mock of the document API
-  (`app/tests/e2e`), never against a live Nextcloud. Treat anything
-  Nextcloud-integration-specific as code-reviewed against the real OCP
-  source, not run.
+  Files integration (file action, routes, controllers, the editor page's CSP)
+  in a real Nextcloud. The automated suites still mock Nextcloud — the PHP
+  against the OCP stubs (`app/tests/Unit`), the frontend against a standalone
+  mock of the document API (`app/tests/e2e`) — so anything that only breaks
+  inside Nextcloud is caught by "Running against a real Nextcloud" below, not
+  by those suites.
 - MariaDB (or PostgreSQL/SQLite for the app; the relay requires MariaDB —
   PLAN.md §5.2) once you're working on persistence.
 
@@ -30,6 +29,7 @@ npm run typecheck
 npm run build        # outputs js/, loaded via Util::addScript (main/files/editor entries)
 npm run dev          # same, in watch mode
 npm run test:e2e     # Playwright -- see tests/e2e/ and the note below
+npm run test:live    # two real users against a real Nextcloud -- see below
 ```
 
 `npm run test:e2e` starts two processes of its own (see
@@ -50,10 +50,75 @@ container like `relay-ci.yml`.
 
 To actually run it inside Nextcloud: symlink or copy `app/` to
 `<nextcloud>/apps/betteroffice`, then `occ app:enable betteroffice`. As of
-Phase 2 this gets you: a "Open with BetterOffice" DOCX file action (also the
-double-click default), a DOCX editor page, and non-collaborative
-read/save with ETag conflict detection. XLSX/PPTX and collaboration are
-later phases — see PLAN.md §17.
+Phase 3 this gets you: an "Open with BetterOffice" DOCX file action (also the
+double-click default), the DOCX editor page with live collaboration and
+presence, and read/save with ETag conflict detection. XLSX/PPTX are later
+phases — see PLAN.md §17. Point the app at a relay and run the two-user check
+as described in "Running against a real Nextcloud" below.
+
+## Running against a real Nextcloud
+
+This is the check the mocked suites cannot replace: CSP, the avatar route, the
+collaboration routes, and two real accounts sharing one document.
+
+Prerequisites: a Nextcloud 31–35 install with the app mounted, two users, a
+DOCX in one user's files shared with the other, and a running relay whose
+`BETTEROFFICE_RELAY_ALLOWED_ORIGIN` is *exactly* the origin you open in the
+browser (scheme, host and port — `http://127.0.0.1:8099` and
+`http://localhost:8099` are different origins to the relay and to CORS). It
+uses the same Playwright Chromium as `npm run test:e2e`.
+
+```bash
+# 1. Mount and enable the app
+ln -s "$PWD/app" /path/to/nextcloud/apps/betteroffice
+php /path/to/nextcloud/occ app:enable betteroffice
+
+# 2. Point the app at the relay; give the relay the app's secret
+php /path/to/nextcloud/occ config:app:set betteroffice relay_url --value=ws://127.0.0.1:8788
+php /path/to/nextcloud/occ config:app:get betteroffice collaboration_secret   # generated on first read
+
+# 3. Share a DOCX with the second user; the file id is `item_source` in the reply
+curl -u alice:password -H 'OCS-APIRequest: true' \
+  -X POST 'http://127.0.0.1:8099/ocs/v2.php/apps/files_sharing/api/v1/shares' \
+  --data-urlencode 'path=/demo.docx' --data-urlencode 'shareType=0' \
+  --data-urlencode 'shareWith=bob' --data-urlencode 'permissions=31'
+
+# 4. Serve Nextcloud (the built-in server needs /index.php/... for app routes)
+cd /path/to/nextcloud && php -S 127.0.0.1:8099 -t .
+
+# 5. Run the check, in another shell, with the relay running
+cd app
+BETTEROFFICE_LIVE_URL=http://127.0.0.1:8099 \
+BETTEROFFICE_LIVE_FILE_ID=187 \
+BETTEROFFICE_LIVE_USER=alice BETTEROFFICE_LIVE_PASSWORD=... \
+BETTEROFFICE_LIVE_PEER=bob BETTEROFFICE_LIVE_PEER_PASSWORD=... \
+npm run test:live
+```
+
+`test:live` logs both accounts in through Nextcloud's own login form, opens
+`/apps/betteroffice/editor/<fileId>` in each, waits for the collaboration
+status to reach `connected`, and asserts each editor lists the other
+participant with an avatar that actually painted (a non-zero `naturalWidth`)
+from Nextcloud's avatar route. It exits non-zero on any failure, so it works as
+a smoke test after a Nextcloud or BetterOffice upgrade.
+
+### The editor page's Content-Security-Policy
+
+Nextcloud's default policy cannot run these editors, and the failure is
+invisible from the server: the page loads, the status bar reads "Live
+collaboration is unavailable right now — you are editing on your own", and
+nothing is logged server-side. `lib/Service/EditorContentSecurityPolicy.php`
+is what makes the page work; it adds two things to the default policy:
+
+- `'wasm-unsafe-eval'` — every BetterOffice editor is a WebAssembly module and
+  the default `script-src` refuses to compile it (core's `files_pdfviewer`
+  makes the same allowance for pdf.js).
+- the configured relay's origin in `connect-src`, in both its `ws(s)://` and
+  `http(s)://` forms — the socket and the presence roster live on the relay,
+  and the default is `connect-src 'self'`.
+
+`test:live` fails on a missing policy and prints the CSP violation it saw, so a
+regression there is caught by running it once against a real instance.
 
 ## The relay (`relay/`)
 
