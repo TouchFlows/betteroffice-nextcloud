@@ -24,6 +24,16 @@
 	color: var(--color-error, #c21818);
 }
 
+.betteroffice-collaboration-status {
+	padding: 4px 16px;
+	font-size: 0.85em;
+	color: var(--color-text-maxcontrast, #555);
+}
+
+.betteroffice-collaboration-status--offline {
+	color: var(--color-warning, #b26b00);
+}
+
 .betteroffice-error {
 	padding: 16px;
 }

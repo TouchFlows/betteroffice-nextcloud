@@ -8,6 +8,7 @@ use OCA\BetterOffice\Service\FileAccessDeniedException;
 use OCA\BetterOffice\Service\FileAccessService;
 use OCA\BetterOffice\Service\FileNotFoundException;
 use OCA\BetterOffice\Service\FileTooLargeException;
+use OCA\BetterOffice\Service\RelayConfigService;
 use OCA\BetterOffice\Service\UnsupportedFileTypeException;
 use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http;
@@ -24,6 +25,7 @@ class EditorController extends Controller {
 		IRequest $request,
 		private IUserSession $userSession,
 		private FileAccessService $fileAccess,
+		private RelayConfigService $relayConfig,
 	) {
 		parent::__construct($appName, $request);
 	}
@@ -60,6 +62,10 @@ class EditorController extends Controller {
 			'fileId' => $fileId,
 			'fileName' => $file->getName(),
 			'readOnly' => !$file->isUpdateable(),
+			// Deployment configuration, not a constant (PLAN.md §14); empty
+			// until an admin sets it, which the frontend reads as "no
+			// collaboration configured" rather than an error.
+			'relayUrl' => $this->relayConfig->getRelayUrl(),
 		]);
 	}
 

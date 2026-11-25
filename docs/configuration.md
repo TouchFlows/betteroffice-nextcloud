@@ -21,12 +21,32 @@ secret and allowed origin.
 
 ## Nextcloud app
 
-No app-specific admin settings page exists yet. The collaboration secret
-itself already auto-generates on first use (`SharedSecretService`, stored
-via `IAppConfig` as app config `collaboration_secret`) -- but until the
-settings page lands, an admin has no UI to read that generated value back
-out to copy into the relay's `BETTEROFFICE_RELAY_SHARED_SECRET`. This
-section gets real content once that page (PLAN.md §4.A, §11) lands.
+No app-specific admin settings page exists yet. Until it lands, both values
+below are set with `occ` (run as the web server user):
+
+### `relay_url`
+
+The collaboration relay's public base URL. `http(s)://` and `ws(s)://` are
+both accepted; the editor converts `http(s)` to `ws(s)` before connecting.
+
+```bash
+occ config:app:set betteroffice relay_url --value="wss://relay.example.com"
+```
+
+When it is unset (the default), the editor opens documents **without**
+collaboration -- reading and saving keep working, and the editor says live
+collaboration is unavailable. It is never hardcoded in source (PLAN.md §14).
+
+### `collaboration_secret`
+
+The secret shared with the relay, used to sign and verify collaboration
+tokens (PLAN.md §8.5). It auto-generates on first use
+(`SharedSecretService`) -- but with no settings UI yet, read it back out to
+copy into the relay's `BETTEROFFICE_RELAY_SHARED_SECRET`:
+
+```bash
+occ config:app:get betteroffice collaboration_secret
+```
 
 ## Hostnames
 
