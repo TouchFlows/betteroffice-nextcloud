@@ -3,9 +3,11 @@ name: app CI
 on:
   push:
     branches: [main]
-    paths: ['app/**', '.github/workflows/app-ci.yml']
+    # relay/** too: the editor e2e suite starts the real relay and proves
+    # collaboration through it, so a relay change must re-run this workflow.
+    paths: ['app/**', 'relay/**', '.github/workflows/app-ci.yml']
   pull_request:
-    paths: ['app/**', '.github/workflows/app-ci.yml']
+    paths: ['app/**', 'relay/**', '.github/workflows/app-ci.yml']
 
 defaults:
   run:
@@ -43,8 +45,31 @@ jobs:
         run: composer audit
 
   frontend:
-    name: Frontend (typecheck, build)
+    name: Frontend (typecheck, build, e2e)
     runs-on: ubuntu-latest
+    services:
+      # The collaboration e2e test drives the *real* relay, which persists to
+      # a real MariaDB (PLAN.md §5.2) -- same service container as
+      # relay-ci.yml, because a mocked store would not prove convergence.
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: ci_root_only
+          MARIADB_DATABASE: betteroffice_relay_test
+          MARIADB_USER: betteroffice_relay_test
+          MARIADB_PASSWORD: test_only_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      BETTEROFFICE_RELAY_DB_HOST: 127.0.0.1
+      BETTEROFFICE_RELAY_DB_NAME: betteroffice_relay_test
+      BETTEROFFICE_RELAY_DB_USER: betteroffice_relay_test
+      BETTEROFFICE_RELAY_DB_PASSWORD: test_only_password
     steps:
       - uses: actions/checkout@v7
 
@@ -58,10 +83,18 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
+      - name: Install relay dependencies and apply its schema
+        # The e2e suite starts relay/src/server.ts itself (playwright.config.ts);
+        # it only needs its dependencies installed and its schema migrated.
+        working-directory: relay
+        run: |
+          npm ci
+          npm run migrate
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Editor e2e (against a mock document API — no live Nextcloud here, see docs/development.md)
+      - name: Editor e2e (mock Nextcloud API, real relay, real MariaDB — see docs/development.md)
         run: npm run test:e2e
 
       - name: Dependency audit (shipped bundle only — fails the build)

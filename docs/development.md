@@ -29,8 +29,24 @@ composer test:unit   # PHPUnit, no running Nextcloud server required
 npm run typecheck
 npm run build        # outputs js/, loaded via Util::addScript (main/files/editor entries)
 npm run dev          # same, in watch mode
-npm run test:e2e     # Playwright, against a mock of DocumentController -- see tests/e2e/
+npm run test:e2e     # Playwright -- see tests/e2e/ and the note below
 ```
+
+`npm run test:e2e` starts two processes of its own (see
+`tests/e2e/playwright.config.ts`): the harness Vite server, and the **real**
+relay (`relay/src/server.ts`, port 8788) against a **real** MariaDB. Nextcloud
+itself is still mocked (`mockDocumentApi.ts`, `mockCollaborationApi.ts`), but
+the collaboration path -- session/seed handshake, transport, provider, relay
+sync and persistence -- is real, because that is what the suite exists to
+prove. Before the first run:
+
+- `npm install` in `relay/` (the relay process is started with `npx tsx`)
+- a migrated relay database: `cd relay && npm run migrate`. The defaults match
+the local test database (`betteroffice_relay_test`); override with
+  `BETTEROFFICE_RELAY_DB_HOST/NAME/USER/PASSWORD`.
+
+CI does the same in `app-ci.yml`'s frontend job, using a MariaDB service
+container like `relay-ci.yml`.
 
 To actually run it inside Nextcloud: symlink or copy `app/` to
 `<nextcloud>/apps/betteroffice`, then `occ app:enable betteroffice`. As of
