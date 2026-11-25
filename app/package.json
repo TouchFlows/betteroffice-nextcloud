@@ -7,7 +7,8 @@
     "dev": "vite build --watch",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
+    "test:live": "node tests/live/presence-avatar.mjs"
   },
   "dependencies": {
     "@betteroffice/docx": "0.5.1",
