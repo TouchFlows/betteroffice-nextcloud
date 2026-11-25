@@ -120,6 +120,13 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 
 ### Fixed
 
+- `[app]` The presence-token-refresh e2e test slept a fixed 12 seconds and then
+  gave the roster 10 more, so one number had to cover both the token lifetime
+  and however long the refresh loop then took — and it still timed out on a
+  busy machine. It now waits only past the token's lifetime and polls the
+  observable consequence instead (a second session resolved), which is the
+  thing it actually asserts; the test runs about six seconds faster and no
+  longer depends on how loaded the machine is.
 - `[relay]` A read-only participant's rejected edit could still reach the
   room by reconnecting. The relay only refused *Update* frames, but the room
   asks every new peer for its state (`SyncStep1`), so the peer's answer
