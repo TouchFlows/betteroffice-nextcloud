@@ -1,5 +1,13 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import {
+	test as base,
+	expect,
+	type APIRequestContext,
+	type Browser,
+	type BrowserContext,
+	type Page,
+} from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +38,31 @@ const EDITOR_PATH = `/?fileId=1&fileName=demo.docx&relayUrl=${encodeURIComponent
 // Matches playwright.config.ts's baseURL; needed as an absolute origin to
 // scope a browser context's cookie to the harness.
 const ORIGIN = 'http://localhost:5184';
+
+/**
+ * Each test execution gets its own collaboration room: the mock hands out the
+ * room this context asks for (`mockCollaborationApi.ts`), so a repeated or
+ * parallel run cannot inherit another run's seed and edits.
+ */
+// A cookie, not a header: the presence roster is fetched cross-origin from the
+// relay, and a custom header would make that request non-simple (preflighted,
+// and refused by the relay). `credentials: 'omit'` keeps it off the relay.
+const ROOM_COOKIE = 'betteroffice-e2e-room';
+
+const test = base.extend<{ room: string }>({
+	room: async ({ context }, use) => {
+		const room = `e2e-room-${randomUUID()}`;
+		await context.addCookies([{ name: ROOM_COOKIE, value: room, url: ORIGIN }]);
+		await use(room);
+	},
+});
+
+/** Another context in the same test, joining the same room. */
+async function newContext(browser: Browser, room: string): Promise<BrowserContext> {
+	const context = await browser.newContext();
+	await context.addCookies([{ name: ROOM_COOKIE, value: room, url: ORIGIN }]);
+	return context;
+}
 
 interface ParagraphRead {
 	ok: boolean;
@@ -142,14 +175,15 @@ test.describe('docx: two browsers through the real relay', () => {
 	test('edits converge in both sessions and either session can save the merged document', async ({
 		browser,
 		request,
+		room,
 	}) => {
 		test.setTimeout(180_000);
 
 		// Explicit, not order-dependent: the reconnect test lowers this.
-		await request.post('/__test__/token-ttl?seconds=300');
+		await request.post(`/__test__/token-ttl?seconds=300&room=${room}`);
 
-		const aliceContext = await browser.newContext();
-		const bobContext = await browser.newContext();
+		const aliceContext = await newContext(browser, room);
+		const bobContext = await newContext(browser, room);
 		const alice = await aliceContext.newPage();
 		const bob = await bobContext.newPage();
 
@@ -207,11 +241,11 @@ test.describe('docx: two browsers through the real relay', () => {
 	 * opened with leaves every attempt rejected, and the editor stuck on
 	 * "Reconnecting…" forever.
 	 */
-	test('a reconnect after the token expires asks for a fresh one and rejoins', async ({ page, request }) => {
+	test('a reconnect after the token expires asks for a fresh one and rejoins', async ({ page, request, room }) => {
 		test.setTimeout(120_000);
 
 		// Short-lived tokens, so "expired" is reachable inside a test.
-		await request.post('/__test__/token-ttl?seconds=5');
+		await request.post(`/__test__/token-ttl?seconds=5&room=${room}`);
 
 		// Record every WebSocket the page opens: the drop is then simulated from
 		// the page itself (indistinguishable from a network drop) and each
@@ -288,8 +322,8 @@ test.describe('docx: two browsers through the real relay', () => {
  * after the token expired -- needs a fresh token.
  */
 test.describe('docx: collaboration session lifecycle', () => {
-	test('the first connection reuses the session resolved for the seed', async ({ page, request }) => {
-		await request.post('/__test__/token-ttl?seconds=300');
+	test('the first connection reuses the session resolved for the seed', async ({ page, request, room }) => {
+		await request.post(`/__test__/token-ttl?seconds=300&room=${room}`);
 
 		const sessionRequests: string[] = [];
 		page.on('request', (outgoing) => {
@@ -315,13 +349,13 @@ test.describe('docx: collaboration session lifecycle', () => {
  * really sent, and the relay is what has to stop it.
  */
 test.describe('docx: read-only participant', () => {
-	test('a viewer receives the document and the relay rejects its edit', async ({ browser, request }) => {
+	test('a viewer receives the document and the relay rejects its edit', async ({ browser, request, room }) => {
 		test.setTimeout(120_000);
 
-		await request.post('/__test__/token-ttl?seconds=300');
+		await request.post(`/__test__/token-ttl?seconds=300&room=${room}`);
 
-		const writerContext = await browser.newContext();
-		const viewerContext = await browser.newContext();
+		const writerContext = await newContext(browser, room);
+		const viewerContext = await newContext(browser, room);
 		// The real app derives the role and display name from the user's file
 		// permissions and account; the mock has no Nextcloud to consult, so
 		// per-context cookies tell it which of these two sessions is the
@@ -416,14 +450,14 @@ test.describe('docx: read-only participant', () => {
  * straight away.
  */
 test.describe('docx: presence token refresh', () => {
-	test('a token the relay refuses is replaced instead of retried', async ({ browser, request }) => {
+	test('a token the relay refuses is replaced instead of retried', async ({ browser, request, room }) => {
 		test.setTimeout(180_000);
 
 		// Short-lived tokens, so the cached one expires inside the test.
-		await request.post('/__test__/token-ttl?seconds=5');
+		await request.post(`/__test__/token-ttl?seconds=5&room=${room}`);
 
-		const aliceContext = await browser.newContext();
-		const bobContext = await browser.newContext();
+		const aliceContext = await newContext(browser, room);
+		const bobContext = await newContext(browser, room);
 		// A second, distinguishable participant (PLAN.md §8.6).
 		await bobContext.addCookies([{ name: 'betteroffice-e2e-user', value: 'Bob', url: ORIGIN }]);
 		const alice = await aliceContext.newPage();
