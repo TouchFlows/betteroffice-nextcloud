@@ -1,0 +1,44 @@
+name: poc CI
+
+# The poc has no build or typecheck script of its own, and app CI and relay CI
+# are path-filtered to their own trees, so a `poc/` change used to run no
+# TypeScript check at all. The two TypeScript 7 errors that broke the poc's
+# editor were found by running tsc by hand, not by CI; this workflow is what
+# makes that impossible to repeat.
+on:
+  push:
+    branches: [main]
+    paths: ['poc/**', '.github/workflows/poc-ci.yml']
+  pull_request:
+    paths: ['poc/**', '.github/workflows/poc-ci.yml']
+
+defaults:
+  run:
+    working-directory: poc
+
+jobs:
+  typecheck:
+    name: Typecheck (tsc --noEmit)
+    runs-on: ubuntu-latest
+    strategy:
+      # Report all three versions, not just the first one to fail: a lib.dom
+      # or @types difference that only bites on one Node version is exactly
+      # the kind of thing this job exists to surface.
+      fail-fast: false
+      matrix:
+        node-version: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: poc/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        # The poc's tsconfig includes app/, relay/, shared/, tests/ and the two
+        # config files, so this covers every TypeScript file in the tree.
+        run: npx tsc --noEmit
