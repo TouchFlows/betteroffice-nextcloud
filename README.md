@@ -55,3 +55,4 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
 If you find this project useful, consider supporting its development.
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=github)](https://github.com/sponsors/marktamis)
+[![Sponsor](https://buymeacoffee.com/marktamis)](https://buymeacoffee.com/marktamis)
