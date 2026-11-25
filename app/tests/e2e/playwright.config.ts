@@ -18,7 +18,14 @@ export default defineConfig({
 	},
 	webServer: [
 		{
-			command: 'npx vite --config tests/e2e/vite.harness.config.ts',
+			// Through webServer.mjs, which stops the server when the run that
+			// started it is killed: `exec` replaces Playwright's shell with the
+			// wrapper, so the wrapper is Playwright's direct child and can see the
+			// kill, and the server underneath it (a direct `node`, not `npx vite`)
+			// is then stopped too. Without that, a killed run leaves this server on
+			// :5184 and the relay on :8788, and the next run refuses to start.
+			command:
+				'exec node tests/e2e/webServer.mjs node node_modules/vite/bin/vite.js --config tests/e2e/vite.harness.config.ts',
 			cwd: '../..',
 			url: 'http://localhost:5184',
 			reuseExistingServer: false,
@@ -29,7 +36,10 @@ export default defineConfig({
 			// proves convergence through the actual service, not a stand-in.
 			// Its schema must already be migrated (relay/README.md); CI does
 			// that before running these tests.
-			command: 'npx tsx src/server.ts',
+			// Same wrapper as above (webServer.mjs), and `node --import tsx` rather
+			// than `npx tsx` so there is no package-runner process between the
+			// wrapper and the relay it has to stop.
+			command: 'exec node ../app/tests/e2e/webServer.mjs node --import tsx src/server.ts',
 			cwd: '../../../relay',
 			url: `http://127.0.0.1:${TEST_RELAY_PORT}/health`,
 			reuseExistingServer: false,

@@ -147,6 +147,15 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 
 ### Fixed
 
+- `[app]` A killed e2e run no longer leaves its servers behind. Playwright runs
+  a web server through a shell and only kills it on a clean exit, so a SIGKILL
+  of the run — a cancelled job, a tool timeout — reparented the harness Vite
+  server and the relay: they kept :5184 and :8788, and the next run failed with
+  "… is already used". Both now start through `tests/e2e/webServer.mjs`, which
+  Playwright runs via `exec` (so the wrapper is its direct child) and which
+  stops its server once its parent id changes — the only signal a reparented
+  process gets.
+
 - `[app]` The presence-token-refresh e2e test no longer sleeps: it gives the
   room a two-second token lifetime — certainly expired by the roster re-read
   five seconds later, but long enough for the socket to be admitted with it —
