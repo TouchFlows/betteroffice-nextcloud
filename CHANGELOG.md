@@ -110,6 +110,12 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   The default policy refused both, so on a live instance the editor loaded
   and then silently fell back to "editing on your own" — no collaboration,
   no presence, and nothing in the server logs to say why.
+- `[app]` The read-only collaboration e2e test failed intermittently with
+  "Worker read was superseded": the editor's worker rejects a paragraph read
+  that a later read supersedes, and an update arriving from the relay can
+  start one mid-assertion. That is a race in the editor, not what the test
+  asserts, so the test's read helper now retries that specific race; any
+  other error still fails the run.
 - `[app]` Presence kept retrying a collaboration token the relay had already
   refused. The roster reuses the token the session handshake resolved for
   four minutes, so once that token expired (five-minute lifetime) every read

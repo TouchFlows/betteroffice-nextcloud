@@ -37,17 +37,34 @@ interface ParagraphRead {
 	paragraphs: Array<{ paraId: string; text: string }>;
 }
 
+/**
+ * Reads the first paragraph through the editor's imperative handle.
+ *
+ * The handle's reads are serialised in the editor's worker, and a read still
+ * in flight when another starts is rejected with "Worker read was superseded"
+ * -- typically because an update arriving from the relay triggered the
+ * editor's own read. That is a race in the editor, not a failure of what these
+ * tests assert, so a superseded read is retried; anything else still fails.
+ */
 async function readFirstParagraph(page: Page): Promise<ParagraphRead | null> {
-	return page.evaluate(() => {
-		const ref = (window as unknown as { __betteroffice?: { editorRef?: { current?: unknown } } })
-			.__betteroffice?.editorRef?.current as { readParagraphs?: (options: unknown) => unknown } | undefined;
-		if (!ref || typeof ref.readParagraphs !== 'function') return null;
+	for (let attempt = 0; ; attempt++) {
 		try {
-			return ref.readParagraphs({ view: 'accepted' }) as ParagraphRead;
-		} catch {
-			return null;
+			return await page.evaluate(() => {
+				const ref = (window as unknown as { __betteroffice?: { editorRef?: { current?: unknown } } })
+					.__betteroffice?.editorRef?.current as { readParagraphs?: (options: unknown) => unknown } | undefined;
+				if (!ref || typeof ref.readParagraphs !== 'function') return null;
+				try {
+					return ref.readParagraphs({ view: 'accepted' }) as ParagraphRead;
+				} catch {
+					return null;
+				}
+			});
+		} catch (error) {
+			const superseded = error instanceof Error && error.message.includes('Worker read was superseded');
+			if (!superseded || attempt >= 4) throw error;
+			await page.waitForTimeout(50);
 		}
-	});
+	}
 }
 
 /** Waits until the editor's handle is live and has actually opened the document. */
