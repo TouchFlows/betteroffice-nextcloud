@@ -107,6 +107,20 @@ jobs:
         # fails on the second pass, so one pass would let that regress.
         run: npm run test:e2e:repeat
 
+      - name: Upload Playwright traces
+        # retain-on-failure (tests/e2e/playwright.config.ts) writes a trace only
+        # for the run that failed, so a red repeat leaves the DOM, network and
+        # console timeline here instead of just an assertion diff in the log.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          # Relative to the workspace root: defaults.run.working-directory only
+          # applies to `run:` steps, not to a `uses:` input.
+          path: app/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Dependency audit (shipped bundle only — fails the build)
         run: npm audit --omit=dev
 

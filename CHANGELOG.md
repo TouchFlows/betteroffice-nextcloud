@@ -118,6 +118,13 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   mock state only fails on the second pass, so a single run would have let
   the per-test isolation above regress unnoticed.
 
+- `[app]` A failed e2e run now leaves a trace: `trace: 'retain-on-failure'` in
+  `tests/e2e/playwright.config.ts`, and app CI uploads `app/test-results` as
+  the `playwright-traces` artifact when the e2e step fails (kept seven days).
+  The failure this suite actually produces — a repeat that only fails on the
+  second pass — is the one where an assertion diff alone says nothing about
+  what the other browser, the relay or the roster were doing at that moment.
+
 ### Fixed
 
 - `[app]` The presence-token-refresh e2e test slept a fixed 12 seconds and then
