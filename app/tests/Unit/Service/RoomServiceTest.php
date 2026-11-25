@@ -132,7 +132,13 @@ class RoomServiceTest extends TestCase {
 		$session->setFormat('docx');
 		$session->setRoomId('room-abc');
 
-		$token = $this->service->issueToken($session, 'alice', 'write');
+		$token = $this->service->issueToken(
+			$session,
+			'alice',
+			'write',
+			'Alice Anderson',
+			'https://cloud.example.test/index.php/avatar/alice/64',
+		);
 
 		[$header, $payload, $signature] = explode('.', $token);
 		$decode = static fn (string $segment) => base64_decode(strtr($segment, '-_', '+/'), true);
@@ -146,6 +152,10 @@ class RoomServiceTest extends TestCase {
 		$claims = json_decode($decode($payload), true, flags: JSON_THROW_ON_ERROR);
 		self::assertSame('instance-1', $claims['iid']);
 		self::assertSame('alice', $claims['sub']);
+		// Presence identity (PLAN.md §8.6) is signed here, so the relay can
+		// report it without trusting anything the browser sends.
+		self::assertSame('Alice Anderson', $claims['name']);
+		self::assertSame('https://cloud.example.test/index.php/avatar/alice/64', $claims['avatar']);
 		self::assertSame(42, $claims['fid']);
 		self::assertSame('room-abc', $claims['roomId']);
 		self::assertSame('docx', $claims['format']);

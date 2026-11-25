@@ -3,7 +3,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { Pool } from 'mariadb';
 import type { RelayServerConfig } from './config.js';
 import { RoomRegistry } from './roomRegistry.js';
-import type { Room } from './room.js';
+import type { Room, RoomParticipant } from './room.js';
 import { verifyCollaborationToken, TokenVerificationError } from './token.js';
 
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
@@ -19,8 +19,14 @@ const SYNC_SUBTYPE_UPDATE = 2;
  * `poc/app/roomSeed.ts`'s own note) -- this relay only ever sees an opaque
  * room id and an already-seeded `Room`.
  */
-export function attachCollaborationServer(httpServer: Server, config: RelayServerConfig, pool: Pool): WebSocketServer {
-	const registry = new RoomRegistry(pool);
+export function attachCollaborationServer(
+	httpServer: Server,
+	config: RelayServerConfig,
+	pool: Pool,
+	// Injectable so the presence endpoint can share the same live rooms
+	// (`presence.ts`); production wiring passes one registry for both.
+	registry: RoomRegistry = new RoomRegistry(pool),
+): WebSocketServer {
 	const wss = new WebSocketServer({ noServer: true });
 
 	httpServer.on('upgrade', (request, socket, head) => {
@@ -42,14 +48,23 @@ export function attachCollaborationServer(httpServer: Server, config: RelayServe
 			return;
 		}
 
-		let role: 'read' | 'write';
+		let participant: RoomParticipant;
 		try {
 			const claims = verifyCollaborationToken(token, config.sharedSecret);
 			if (claims.roomId !== roomId) {
 				socket.destroy();
 				return;
 			}
-			role = claims.role;
+			// §8.6: presence identity comes from the signed token, never from
+			// anything the browser sends, so a client cannot appear to be
+			// someone else in the room. `sub` is only a fallback for a token
+			// issued before presence shipped; those expire within five minutes.
+			participant = {
+				userId: claims.sub,
+				name: claims.name ?? claims.sub,
+				avatar: claims.avatar ?? null,
+				role: claims.role,
+			};
 		} catch (error) {
 			const reason = error instanceof TokenVerificationError ? error.reason : 'malformed';
 			console.warn(`[relay] room ${roomId}: rejected connection (token ${reason})`);
@@ -58,7 +73,7 @@ export function attachCollaborationServer(httpServer: Server, config: RelayServe
 		}
 
 		wss.handleUpgrade(request, socket, head, (ws) => {
-			wss.emit('connection', ws, roomId, role);
+			wss.emit('connection', ws, roomId, participant);
 		});
 	});
 
@@ -90,7 +105,7 @@ export function attachCollaborationServer(httpServer: Server, config: RelayServe
 		return undefined;
 	}
 
-	wss.on('connection', (socket: WebSocket, roomId: string, role: 'read' | 'write') => {
+	wss.on('connection', (socket: WebSocket, roomId: string, participant: RoomParticipant) => {
 		// `ws` delivers 'message' synchronously as data arrives; a client that
 		// sends its first frame immediately on open can beat an async setup
 		// step here, and an emitted event with no listener yet is simply
@@ -106,7 +121,7 @@ export function attachCollaborationServer(httpServer: Server, config: RelayServe
 				socket.close(1003, 'Binary frames only');
 				return;
 			}
-			if (rejectFrame(socket, roomId, role, data) === false) return;
+			if (rejectFrame(socket, roomId, participant.role, data) === false) return;
 			try {
 				room!.receive(socket, new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
 			} catch (error) {
@@ -157,7 +172,7 @@ export function attachCollaborationServer(httpServer: Server, config: RelayServe
 				}
 				return;
 			}
-			resolved.join(socket);
+			resolved.join(socket, participant);
 			room = resolved;
 			for (const { data, isBinary } of pending) processOne(data, isBinary);
 		})();

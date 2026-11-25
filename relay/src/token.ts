@@ -13,6 +13,13 @@ export interface CollaborationTokenClaims {
 	iid: string;
 	/** Nextcloud user id. */
 	sub: string;
+	/**
+	 * Display name for presence (PLAN.md §8.6). Optional only so a token
+	 * issued moments before an upgrade keeps working until it expires.
+	 */
+	name?: string;
+	/** Absolute Nextcloud avatar URL for presence; absent or null when there is none. */
+	avatar?: string | null;
 	/** Nextcloud file id. */
 	fid: number;
 	/** The room this token authorises -- must match the room being joined. */
@@ -25,6 +32,10 @@ export interface CollaborationTokenClaims {
 	/** Unique token id (§8.5) -- carried for audit logging; this relay does not yet track used jtis (Phase 5/6). */
 	jti: string;
 }
+
+/** Matches the client's own awareness-state bound (`Awareness user name exceeds 1024 characters`). */
+const MAX_NAME_LENGTH = 1024;
+const MAX_AVATAR_URL_LENGTH = 2048;
 
 export class TokenVerificationError extends Error {
 	constructor(readonly reason: 'malformed' | 'bad-signature' | 'expired') {
@@ -67,6 +78,16 @@ export function verifyCollaborationToken(
 		typeof claims.exp !== 'number' ||
 		typeof claims.roomId !== 'string' ||
 		(claims.role !== 'read' && claims.role !== 'write')
+	) {
+		throw new TokenVerificationError('malformed');
+	}
+	// Presence is broadcast to everyone else in the room, so a malformed or
+	// oversized identity must be refused here rather than relayed (§13).
+	if (
+		(claims.name !== undefined && (typeof claims.name !== 'string' || claims.name.length > MAX_NAME_LENGTH)) ||
+		(claims.avatar !== undefined &&
+			claims.avatar !== null &&
+			(typeof claims.avatar !== 'string' || claims.avatar.length > MAX_AVATAR_URL_LENGTH))
 	) {
 		throw new TokenVerificationError('malformed');
 	}

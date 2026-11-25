@@ -80,6 +80,18 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   betteroffice relay_url` keeps working for provisioning scripts. App
   version 0.2.0, since Nextcloud registers settings classes on upgrade.
 
+- `[app]` `[relay]` Presence (PLAN.md §8.6), completing Phase 3: the editor
+  lists who else is in the room with their display name, avatar and
+  read-only/editing role. The identity is signed into each collaboration
+  token by `RoomService` (display name from the authenticated Nextcloud
+  user, avatar from core's public avatar route) and reported by the relay's
+  new `GET /room/:roomId/presence` endpoint, which is authorised by the same
+  short-lived token as the socket — so a caller can only see a room it
+  already has access to, the answer is readable only from the configured
+  Origin, and Nextcloud user ids are never included. Nothing a browser says
+  about itself is used: the awareness channel still carries cursors, but the
+  roster comes from the verified token.
+
 ### Fixed
 
 - `[relay]` The migration runner's rollback never actually worked:
