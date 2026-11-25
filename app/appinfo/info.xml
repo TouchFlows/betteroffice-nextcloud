@@ -8,7 +8,7 @@
 real-time collaboration, backed by BetterOffice's WebAssembly editors and a
 self-hosted collaboration relay. No Collabora, no ONLYOFFICE, no external
 document service, and your files never leave your Nextcloud instance.]]></description>
-	<version>0.1.0</version>
+	<version>0.2.0</version>
 	<licence>Apache-2.0</licence>
 	<author mail="noreply@touchflows.com" homepage="https://touchflows.com">TouchFlows</author>
 	<namespace>BetterOffice</namespace>
@@ -23,6 +23,14 @@ document service, and your files never leave your Nextcloud instance.]]></descri
 		<database>sqlite</database>
 		<nextcloud min-version="31" max-version="35"/>
 	</dependencies>
+	<!-- Settings → Administration → BetterOffice (PLAN.md §4.A, §11). The
+	     version above is bumped with this block: Nextcloud registers settings
+	     classes on install/update, so an existing installation only picks them
+	     up after an upgrade. -->
+	<settings>
+		<admin>OCA\BetterOffice\Settings\Admin</admin>
+		<admin-section>OCA\BetterOffice\Settings\Section</admin-section>
+	</settings>
 	<navigations>
 		<navigation>
 			<id>betteroffice</id>

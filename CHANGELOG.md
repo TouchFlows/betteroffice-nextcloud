@@ -70,6 +70,15 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   the socket, then edits and asserts the relay closes it (code 1008) so
   nothing it writes reaches the room. `mockCollaborationApi.ts` can issue a
   read-only session to one browser context.
+- `[app]` Admin settings page (PLAN.md §4.A, §11), in its own
+  Settings → Administration → BetterOffice section: set the collaboration
+  relay URL and copy or regenerate the collaboration secret the relay
+  verifies tokens with. The URL is validated before it is stored (absolute
+  `http(s)://` / `ws(s)://` with a host, trailing slashes dropped; empty
+  disables collaboration), and both writes go through admin-only,
+  CSRF-enforced `SettingsController` endpoints. `occ config:app:set
+  betteroffice relay_url` keeps working for provisioning scripts. App
+  version 0.2.0, since Nextcloud registers settings classes on upgrade.
 
 ### Fixed
 

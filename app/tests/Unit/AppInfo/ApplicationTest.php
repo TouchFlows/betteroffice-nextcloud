@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace OCA\BetterOffice\Tests\Unit\AppInfo;
 
 use OCA\BetterOffice\AppInfo\Application;
+use OCA\BetterOffice\Settings\Admin;
+use OCA\BetterOffice\Settings\Section;
+use OCP\Settings\IIconSection;
+use OCP\Settings\ISettings;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -24,5 +28,31 @@ class ApplicationTest extends TestCase {
 		$routes = require __DIR__ . '/../../../appinfo/routes.php';
 		$names = array_map(static fn (array $route) => $route['name'], $routes['routes']);
 		self::assertContains('page#index', $names, 'routes.php must define the navigation route page#index');
+	}
+
+	/**
+	 * info.xml is the only thing that registers the admin settings page; a
+	 * mistyped class name there silently produces no page at all, which no
+	 * amount of controller testing would catch.
+	 */
+	public function testAdminSettingsAreRegisteredInInfoXml(): void {
+		$info = simplexml_load_file(__DIR__ . '/../../../appinfo/info.xml');
+		self::assertNotFalse($info, 'appinfo/info.xml must parse');
+
+		$admin = (string)$info->settings->admin;
+		$section = (string)$info->settings->{'admin-section'};
+
+		self::assertTrue(is_subclass_of($admin, ISettings::class), "{$admin} must implement ISettings");
+		self::assertTrue(is_subclass_of($section, IIconSection::class), "{$section} must implement IIconSection");
+		self::assertSame(Admin::class, $admin);
+		self::assertSame(Section::class, $section);
+	}
+
+	public function testSettingsRoutesExist(): void {
+		$routes = require __DIR__ . '/../../../appinfo/routes.php';
+		$names = array_map(static fn (array $route) => $route['name'], $routes['routes']);
+
+		self::assertContains('settings#saveRelayUrl', $names);
+		self::assertContains('settings#regenerateSecret', $names);
 	}
 }

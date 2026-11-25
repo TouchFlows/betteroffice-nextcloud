@@ -44,6 +44,7 @@ export default createAppConfig(
 		main: 'src/main.tsx',
 		files: 'src/files.ts',
 		editor: 'src/editor/main.tsx',
+		settings: 'src/settings/main.tsx',
 	},
 	{
 		config: defineConfig({
