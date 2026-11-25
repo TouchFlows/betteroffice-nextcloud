@@ -428,7 +428,8 @@ test.describe('docx: presence token refresh', () => {
 		test.setTimeout(180_000);
 
 		// Short-lived tokens, so the cached one expires inside the test.
-		await request.post(`/__test__/token-ttl?seconds=5&room=${room}`);
+		const TOKEN_TTL_SECONDS = 5;
+		await request.post(`/__test__/token-ttl?seconds=${TOKEN_TTL_SECONDS}&room=${room}`);
 
 		const aliceContext = await newContext(browser, room);
 		const bobContext = await newContext(browser, room);
@@ -454,19 +455,28 @@ test.describe('docx: presence token refresh', () => {
 			await expect(bobEntry).toContainText('Bob', { timeout: 30_000 });
 			const sessionsBefore = sessionRequests.length;
 
-			// Longer than any token in play (five seconds here) and than several
-			// five-second presence refreshes.
-			await alice.waitForTimeout(12_000);
+			// Presence can only be refused once the cached token has expired, and
+			// nothing in the page exposes its `exp`, so the lifetime itself has to
+			// be waited out. Just past it, not an arbitrary 12s: a fixed wait also
+			// had to cover however long the refresh loop then took, which is what
+			// timed out when the machine was busy.
+			await alice.waitForTimeout(TOKEN_TTL_SECONDS * 1_000 + 1_000);
 
 			// Without the refresh every read after the first refusal fails, so the
-			// roster stays empty until the four-minute reuse window ends.
+			// roster stays empty until the four-minute reuse window ends. Poll the
+			// observable consequence -- a second session resolved -- instead of
+			// asserting on the roster after a fixed wait.
+			await expect
+				.poll(() => sessionRequests.length, {
+					timeout: 30_000,
+					message:
+						'the editor kept retrying the refused token instead of resolving a new session',
+				})
+				.toBeGreaterThan(sessionsBefore);
+
 			await expect(bobEntry, 'presence stayed blind after its token expired').toContainText('Bob', {
 				timeout: 10_000,
 			});
-			expect(
-				sessionRequests.length,
-				'the editor kept retrying the refused token instead of resolving a new session',
-			).toBeGreaterThan(sessionsBefore);
 		} finally {
 			await aliceContext.close();
 			await bobContext.close();
