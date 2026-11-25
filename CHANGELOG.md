@@ -96,9 +96,11 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   repeatable two-user presence check against a real Nextcloud. It logs both
   accounts in through Nextcloud's own login form, opens the same shared
   document in each, and asserts the other participant's avatar actually
-  paints from Nextcloud's avatar route. It also fails loudly, naming the CSP
-  violation, when the editor page's policy is missing — the failure that
-  silently disabled the editor on a live instance.
+  paints from Nextcloud's avatar route with the role Nextcloud's share
+  permissions gave them — including the "read-only" badge for a document
+  shared read-only. Failures name the account, the file, the collaboration
+  status, any CSP violation and whether the relay answers `/health`, so a
+  broken setup says which part is broken.
 
 ### Fixed
 
