@@ -8,6 +8,9 @@ export default defineConfig({
 	workers: 1,
 	use: {
 		baseURL: 'http://localhost:5184',
+		// Kept only for the run that failed: a trace is the DOM, network and
+		// console timeline around the assertion, which a diff alone cannot show.
+		trace: 'retain-on-failure',
 	},
 	webServer: [
 		{
