@@ -1,11 +1,13 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { E2E_ORIGIN } from './e2eRoom';
+import { expect } from '@playwright/test';
+import {
+	appendText,
+	firstParagraphText,
+	openEditor,
+	saveThroughApp,
+	savedDocumentXml,
+	waitForEditor,
+} from './editorDriver';
 import { newContext, test } from './fixtures';
-import { TEST_RELAY_URL } from './testRelay';
 
 /**
  * The real thing, end to end: two independent browser sessions open the same
@@ -20,130 +22,12 @@ import { TEST_RELAY_URL } from './testRelay';
  * handshake, WsCollaborationTransport, CollaborationProvider, the relay's
  * sync/awareness protocol and its persistence -- is real.
  *
- * The edit driver reads and edits the document through the editor's own
- * imperative handle, the same way poc/tests/docx.collab.spec.ts does: the
- * editor paints to a canvas, so its content cannot be asserted from the DOM,
- * and driving it by keystrokes would make convergence depend on caret
- * placement rather than on the collaboration wiring this test is about.
+ * The rest of that wiring has a spec file of its own, one behaviour each
+ * (collaboration-reconnect, collaboration-roles, collaboration-presence), so
+ * Playwright can spread them over its workers: one file holding every
+ * two-browser test made that file the whole run's critical path while the
+ * other worker sat idle. `editorDriver.ts` holds what they all share.
  */
-
-const DOCUMENT_PATH = '/index.php/apps/betteroffice/document/1';
-const EDITOR_PATH = `/?fileId=1&fileName=demo.docx&relayUrl=${encodeURIComponent(TEST_RELAY_URL)}`;
-// Matches playwright.config.ts's baseURL; needed as an absolute origin to
-// scope a browser context's cookie to the harness.
-const ORIGIN = E2E_ORIGIN;
-
-interface ParagraphRead {
-	ok: boolean;
-	version: string;
-	paragraphs: Array<{ paraId: string; text: string }>;
-}
-
-/**
- * Reads the first paragraph through the editor's imperative handle.
- *
- * The handle's reads are serialised in the editor's worker, and a read still
- * in flight when another starts is rejected with "Worker read was superseded"
- * -- typically because an update arriving from the relay triggered the
- * editor's own read. That is a race in the editor, not a failure of what these
- * tests assert, so a superseded read is retried; anything else still fails.
- */
-async function readFirstParagraph(page: Page): Promise<ParagraphRead | null> {
-	for (let attempt = 0; ; attempt++) {
-		try {
-			return await page.evaluate(() => {
-				const ref = (window as unknown as { __betteroffice?: { editorRef?: { current?: unknown } } })
-					.__betteroffice?.editorRef?.current as { readParagraphs?: (options: unknown) => unknown } | undefined;
-				if (!ref || typeof ref.readParagraphs !== 'function') return null;
-				try {
-					return ref.readParagraphs({ view: 'accepted' }) as ParagraphRead;
-				} catch {
-					return null;
-				}
-			});
-		} catch (error) {
-			const superseded = error instanceof Error && error.message.includes('Worker read was superseded');
-			if (!superseded || attempt >= 4) throw error;
-			await page.waitForTimeout(50);
-		}
-	}
-}
-
-/** Waits until the editor's handle is live and has actually opened the document. */
-async function waitForEditor(page: Page): Promise<void> {
-	await expect
-		.poll(async () => (await readFirstParagraph(page))?.ok ?? false, { timeout: 30_000 })
-		.toBe(true);
-}
-
-async function firstParagraphText(page: Page): Promise<string> {
-	const read = await readFirstParagraph(page);
-	expect(read?.ok, 'the editor handle did not return a readable document').toBe(true);
-	return read!.paragraphs[0].text;
-}
-
-async function appendText(page: Page, text: string): Promise<void> {
-	const read = await readFirstParagraph(page);
-	expect(read?.ok, 'the editor handle did not return a readable document').toBe(true);
-	const first = read!.paragraphs[0];
-	const result = await page.evaluate(
-		({ version, paraId, text }) => {
-			const ref = (window as unknown as { __betteroffice: { editorRef: { current: any } } })
-				.__betteroffice.editorRef.current;
-			return ref.applyEdits({
-				expectVersion: version,
-				steps: [{ op: 'insertText', target: { kind: 'paragraph', story: 'body', paraId }, at: 'end', text }],
-			});
-		},
-		{ version: read!.version, paraId: first.paraId, text },
-	);
-	expect(result.ok, `applyEdits failed: ${JSON.stringify(result)}`).toBe(true);
-}
-
-/** Opens the editor and waits until its collaboration session is live and synced. */
-async function openEditor(page: Page): Promise<void> {
-	await page.goto(EDITOR_PATH);
-	await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible({ timeout: 30_000 });
-	await expect(page.locator('[data-collaboration-status="connected"]')).toBeVisible({ timeout: 30_000 });
-	await waitForEditor(page);
-}
-
-async function saveThroughApp(page: Page): Promise<void> {
-	// The editor captures keyboard input through this hidden proxy textbox;
-	// without focus the shortcut never reaches its own handler.
-	await page.getByRole('textbox', { name: 'Document input' }).focus();
-	await page.keyboard.press('ControlOrMeta+s');
-	await expect(page.locator('.betteroffice-save-status--saved')).toBeVisible({ timeout: 30_000 });
-	await expect(page.locator('.betteroffice-save-status--error')).toHaveCount(0);
-	await expect(page.locator('.betteroffice-save-status--conflict')).toHaveCount(0);
-}
-
-/** The `exp` claim of a collaboration token, in Unix seconds. */
-function tokenExpiry(token: string): number {
-	const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) as { exp: number };
-	return payload.exp;
-}
-
-/**
- * Reads what was actually written to the (mock) Nextcloud file and unzips its
- * body. The room is named explicitly: Playwright's standalone `request`
- * context does not carry the browser context's cookies, so without it the
- * read would answer for a different room than the page saved into.
- */
-async function savedDocumentXml(request: APIRequestContext, room: string): Promise<string> {
-	const response = await request.get(`${DOCUMENT_PATH}?room=${room}`);
-	expect(response.ok()).toBe(true);
-	const bytes = await response.body();
-
-	const dir = mkdtempSync(join(tmpdir(), 'bo-collab-save-'));
-	try {
-		const path = join(dir, 'saved.docx');
-		writeFileSync(path, bytes);
-		return execFileSync('unzip', ['-p', path, 'word/document.xml']).toString('utf8');
-	} finally {
-		rmSync(dir, { recursive: true, force: true });
-	}
-}
 
 test.describe('docx: two browsers through the real relay', () => {
 	test('edits converge in both sessions and either session can save the merged document', async ({
@@ -152,9 +36,6 @@ test.describe('docx: two browsers through the real relay', () => {
 		room,
 	}) => {
 		test.setTimeout(180_000);
-
-		// Explicit, not order-dependent: the reconnect test lowers this.
-		await request.post(`/__test__/token-ttl?seconds=300&room=${room}`);
 
 		const aliceContext = await newContext(browser, room);
 		const bobContext = await newContext(browser, room);
@@ -207,86 +88,6 @@ test.describe('docx: two browsers through the real relay', () => {
 			await bobContext.close();
 		}
 	});
-
-	/**
-	 * The relay verifies a token's `exp` when a connection is admitted, and the
-	 * app issues five-minute tokens (`RoomService::TOKEN_TTL_SECONDS`). A
-	 * reconnect after that must ask for a new token: reusing the one the editor
-	 * opened with leaves every attempt rejected, and the editor stuck on
-	 * "Reconnecting…" forever.
-	 */
-	test('a reconnect after the token expires asks for a fresh one and rejoins', async ({ page, request, room }) => {
-		test.setTimeout(120_000);
-
-		// Short-lived tokens, so "expired" is reachable inside a test.
-		await request.post(`/__test__/token-ttl?seconds=5&room=${room}`);
-
-		// Record every WebSocket the page opens: the drop is then simulated from
-		// the page itself (indistinguishable from a network drop) and each
-		// attempt's token can be inspected. Only `/room/...` sockets are the
-		// relay's -- Vite's own dev client opens one too, with a `token` of its
-		// own, so filtering on the path is what keeps this test about ours.
-		await page.addInitScript(() => {
-			const sockets: WebSocket[] = [];
-			(window as unknown as { __testSockets: WebSocket[] }).__testSockets = sockets;
-			const Native = window.WebSocket;
-			class TrackingWebSocket extends Native {
-				constructor(url: string | URL, protocols?: string | string[]) {
-					super(url, protocols);
-					sockets.push(this);
-				}
-			}
-			(window as unknown as { WebSocket: typeof WebSocket }).WebSocket = TrackingWebSocket;
-		});
-
-		await page.goto(EDITOR_PATH);
-		await expect(page.locator('[data-collaboration-status="connected"]')).toBeVisible({ timeout: 30_000 });
-
-		const firstToken = await page.evaluate(() => {
-			const socket = (window as unknown as { __testSockets: WebSocket[] }).__testSockets.filter(
-				(candidate) => new URL(candidate.url).pathname.startsWith('/room/'),
-			)[0];
-			return socket ? new URL(socket.url).searchParams.get('token') : null;
-		});
-		expect(firstToken, 'the editor did not connect with a collaboration token').toBeTruthy();
-
-		// Let that token actually expire, as it would five minutes into a session.
-		await expect
-			.poll(() => Math.floor(Date.now() / 1000) > tokenExpiry(firstToken!), { timeout: 20_000 })
-			.toBe(true);
-
-		await page.evaluate(() => {
-			const roomSockets = (window as unknown as { __testSockets: WebSocket[] }).__testSockets.filter(
-				(candidate) => new URL(candidate.url).pathname.startsWith('/room/'),
-			);
-			roomSockets.at(-1)!.close();
-		});
-		await expect(page.locator('[data-collaboration-status="connected"]')).toHaveCount(0, { timeout: 10_000 });
-
-		// The client reconnects -- and must do so with a *new* token, because the
-		// expired one is rejected by the relay.
-		await expect
-			.poll(
-				async () =>
-					page.evaluate(
-						() =>
-							(window as unknown as { __testSockets: WebSocket[] }).__testSockets.filter(
-								(candidate) => new URL(candidate.url).pathname.startsWith('/room/'),
-							).length,
-					),
-				{ timeout: 30_000 },
-			)
-			.toBeGreaterThan(1);
-		const tokens = await page.evaluate(() =>
-			(window as unknown as { __testSockets: WebSocket[] }).__testSockets
-				.filter((candidate) => new URL(candidate.url).pathname.startsWith('/room/'))
-				.map((socket) => new URL(socket.url).searchParams.get('token')),
-		);
-		expect(tokens.at(-1), 'the reconnect reused the expired token').not.toBe(firstToken);
-
-		// And it actually got back in, rather than sitting on "Reconnecting…".
-		await expect(page.locator('[data-collaboration-status="connected"]')).toBeVisible({ timeout: 30_000 });
-	});
 });
 
 /**
@@ -296,9 +97,7 @@ test.describe('docx: two browsers through the real relay', () => {
  * after the token expired -- needs a fresh token.
  */
 test.describe('docx: collaboration session lifecycle', () => {
-	test('the first connection reuses the session resolved for the seed', async ({ page, request, room }) => {
-		await request.post(`/__test__/token-ttl?seconds=300&room=${room}`);
-
+	test('the first connection reuses the session resolved for the seed', async ({ page, room }) => {
 		const sessionRequests: string[] = [];
 		page.on('request', (outgoing) => {
 			if (outgoing.method() === 'POST' && outgoing.url().includes('/apps/betteroffice/collab/session/')) {
@@ -312,174 +111,5 @@ test.describe('docx: collaboration session lifecycle', () => {
 			sessionRequests,
 			'the first connection asked for a second collaboration session instead of reusing the one the seed handshake resolved',
 		).toHaveLength(1);
-	});
-});
-
-/**
- * PLAN.md §8.5/§13: the role in the collaboration token is enforced by the
- * relay, not by the editor UI -- a client that ignores its read-only role must
- * still be unable to change the document. The viewer here is exactly such a
- * client: it opens with a read-only token but a writable editor, so its edit is
- * really sent, and the relay is what has to stop it.
- */
-test.describe('docx: read-only participant', () => {
-	test('a viewer receives the document and the relay rejects its edit', async ({ browser, request, room }) => {
-		test.setTimeout(120_000);
-
-		await request.post(`/__test__/token-ttl?seconds=300&room=${room}`);
-
-		const writerContext = await newContext(browser, room);
-		const viewerContext = await newContext(browser, room);
-		// The real app derives the role and display name from the user's file
-		// permissions and account; the mock has no Nextcloud to consult, so
-		// per-context cookies tell it which of these two sessions is the
-		// read-only viewer, and who they are (PLAN.md §8.6).
-		await viewerContext.addCookies([
-			{ name: 'betteroffice-e2e-role', value: 'read', url: ORIGIN },
-			{ name: 'betteroffice-e2e-user', value: 'Bob', url: ORIGIN },
-		]);
-		// A rejection is the relay closing this viewer's socket, and the close
-		// code is the only place that is observable from the page.
-		await viewerContext.addInitScript(() => {
-			const closes: Array<{ code: number; reason: string; url: string }> = [];
-			(window as unknown as { __testSocketCloses: typeof closes }).__testSocketCloses = closes;
-			const Native = window.WebSocket;
-			class TrackingWebSocket extends Native {
-				constructor(url: string | URL, protocols?: string | string[]) {
-					super(url, protocols);
-					this.addEventListener('close', (event) => {
-						closes.push({ code: event.code, reason: event.reason, url: String(url) });
-					});
-				}
-			}
-			(window as unknown as { WebSocket: typeof WebSocket }).WebSocket = TrackingWebSocket;
-		});
-
-		const writer = await writerContext.newPage();
-		const viewer = await viewerContext.newPage();
-
-		try {
-			await openEditor(writer);
-			const baseline = await firstParagraphText(writer);
-			await appendText(writer, ' [from-writer]');
-
-			// The viewer's seed predates the writer's edit, so seeing it can only
-			// mean the relay delivered the update to a read-only token.
-			await openEditor(viewer);
-			await expect.poll(() => firstParagraphText(viewer), { timeout: 20_000 }).toContain('[from-writer]');
-
-			// Presence (PLAN.md §8.6): each side lists the *other* participant
-			// with the display name and role signed into that participant's
-			// token, and renders the avatar the token carries.
-			const bob = writer.locator('[data-collaboration-role="read"]');
-			await expect(bob).toContainText('Bob', { timeout: 20_000 });
-			await expect(writer.locator('[data-collaboration-presence]')).toHaveAttribute('data-collaboration-presence', '1');
-			await expect(viewer.locator('[data-collaboration-role="write"]')).toContainText('Alice', {
-				timeout: 20_000,
-			});
-			await expect
-				.poll(
-					() =>
-						bob
-							.locator('.betteroffice-collaboration-presence__avatar')
-							.evaluate((image: HTMLImageElement) => image.naturalWidth),
-					{ timeout: 20_000 },
-				)
-				.toBeGreaterThan(0);
-
-			await appendText(viewer, ' [from-viewer]');
-			expect(await firstParagraphText(viewer), 'the viewer never attempted an edit').toContain('[from-viewer]');
-
-			await expect
-				.poll(
-					() =>
-						viewer.evaluate(() =>
-							(window as unknown as { __testSocketCloses: Array<{ code: number; url: string }> })
-								.__testSocketCloses.filter((close) => new URL(close.url).pathname.startsWith('/room/'))
-								.map((close) => close.code),
-						),
-					{ timeout: 20_000 },
-				)
-				.toContain(1008);
-
-			// Rejected means it never reached the room.
-			await writer.waitForTimeout(1_000);
-			expect(await firstParagraphText(writer)).not.toContain('[from-viewer]');
-			expect(await firstParagraphText(writer)).toContain('[from-writer]');
-			expect(baseline).not.toContain('[from-writer]');
-		} finally {
-			await writerContext.close();
-			await viewerContext.close();
-		}
-	});
-});
-
-/**
- * Presence reads the roster with a collaboration token and reuses the one the
- * session handshake resolved for four minutes (`PRESENCE_TOKEN_REUSE_MS`). A
- * token only lives five minutes (`RoomService::TOKEN_TTL_SECONDS`), so once it
- * has expired the relay answers 401 and that token can never work again:
- * retrying it until the reuse window ran out would leave the editor listing no
- * collaborators for minutes. A refusal must drop it and resolve a new session
- * straight away.
- */
-test.describe('docx: presence token refresh', () => {
-	test('a token the relay refuses is replaced instead of retried', async ({ browser, request, room }) => {
-		test.setTimeout(180_000);
-
-		// Short-lived tokens, so the cached one expires inside the test.
-		const TOKEN_TTL_SECONDS = 5;
-		await request.post(`/__test__/token-ttl?seconds=${TOKEN_TTL_SECONDS}&room=${room}`);
-
-		const aliceContext = await newContext(browser, room);
-		const bobContext = await newContext(browser, room);
-		// A second, distinguishable participant (PLAN.md §8.6).
-		await bobContext.addCookies([{ name: 'betteroffice-e2e-user', value: 'Bob', url: ORIGIN }]);
-		const alice = await aliceContext.newPage();
-		const bob = await bobContext.newPage();
-
-		try {
-			// Every session the page resolves, so "asked for a new token" is
-			// observed directly rather than inferred from the roster alone.
-			const sessionRequests: string[] = [];
-			alice.on('request', (outgoing) => {
-				if (outgoing.method() === 'POST' && outgoing.url().includes('/apps/betteroffice/collab/session/')) {
-					sessionRequests.push(outgoing.url());
-				}
-			});
-
-			await openEditor(alice);
-			await openEditor(bob);
-
-			const bobEntry = alice.locator('[data-collaboration-role="write"]');
-			await expect(bobEntry).toContainText('Bob', { timeout: 30_000 });
-			const sessionsBefore = sessionRequests.length;
-
-			// Presence can only be refused once the cached token has expired, and
-			// nothing in the page exposes its `exp`, so the lifetime itself has to
-			// be waited out. Just past it, not an arbitrary 12s: a fixed wait also
-			// had to cover however long the refresh loop then took, which is what
-			// timed out when the machine was busy.
-			await alice.waitForTimeout(TOKEN_TTL_SECONDS * 1_000 + 1_000);
-
-			// Without the refresh every read after the first refusal fails, so the
-			// roster stays empty until the four-minute reuse window ends. Poll the
-			// observable consequence -- a second session resolved -- instead of
-			// asserting on the roster after a fixed wait.
-			await expect
-				.poll(() => sessionRequests.length, {
-					timeout: 30_000,
-					message:
-						'the editor kept retrying the refused token instead of resolving a new session',
-				})
-				.toBeGreaterThan(sessionsBefore);
-
-			await expect(bobEntry, 'presence stayed blind after its token expired').toContainText('Bob', {
-				timeout: 10_000,
-			});
-		} finally {
-			await aliceContext.close();
-			await bobContext.close();
-		}
 	});
 });

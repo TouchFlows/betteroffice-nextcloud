@@ -131,6 +131,17 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   from 1.3–1.5m to 46–49s over three consecutive green local runs; the
   second-pass guard above is what would catch a room leaking between them.
 
+- `[app]` The collaboration e2e spec is one file per behaviour
+  (`collaboration.spec.ts` keeps convergence and the session handshake;
+  `collaboration-reconnect`, `collaboration-roles` and
+  `collaboration-presence` take the rest, sharing `editorDriver.ts`), so
+  Playwright's two workers can split that work instead of one file holding
+  every two-browser test while the other worker ran out of tests and idled.
+  The single run went from 43.0s to 21.9–23.3s over three runs; the repeated
+  run CI actually executes stays at 43–50s (was 46–49s), because it already
+  interleaved both repetitions across the workers -- the split removes the
+  idle worker, it does not reduce the work.
+
 - `[relay]` A harness-only token-revocation route
   (`POST /__test__/revoke-token`, `relay/src/testControl.ts`), served only
   when `BETTEROFFICE_RELAY_TEST_CONTROL=1`. A signature cannot be un-signed,
