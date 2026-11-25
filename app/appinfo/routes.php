@@ -10,5 +10,7 @@ return [
 		['name' => 'document#save', 'url' => '/document/{fileId}', 'verb' => 'PUT', 'requirements' => ['fileId' => '\d+']],
 		['name' => 'collaboration#session', 'url' => '/collab/session/{fileId}', 'verb' => 'POST', 'requirements' => ['fileId' => '\d+']],
 		['name' => 'collaboration#seed', 'url' => '/collab/session/{fileId}/seed', 'verb' => 'PUT', 'requirements' => ['fileId' => '\d+']],
+		['name' => 'settings#saveRelayUrl', 'url' => '/settings/relay-url', 'verb' => 'POST'],
+		['name' => 'settings#regenerateSecret', 'url' => '/settings/secret', 'verb' => 'POST'],
 	],
 ];

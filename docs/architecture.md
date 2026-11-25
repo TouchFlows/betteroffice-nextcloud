@@ -43,9 +43,11 @@ Phase 3 so far: `RoomService` (keyed-HMAC room ids, §8.1), `CollaborationContro
 (`POST .../collab/session/{fileId}` resolves/creates the `betteroffice_sessions`
 row and issues a token; `PUT .../collab/session/{fileId}/seed` is the
 atomic seed create-if-absent, §8.2), and `SharedSecretService` (the
-auto-generated secret shared with the relay, §8.5). Not yet landed: the
-frontend's own collaboration wiring (still non-collaborative DOCX only, as
-in Phase 2) and the admin settings page to display/regenerate the secret.
+auto-generated secret shared with the relay, §8.5), `Settings\Admin` and
+`SettingsController` (Settings → Administration → BetterOffice: relay URL
+and secret, §4.A/§11), and the frontend's own collaboration wiring in
+`EditorApp`. Still ahead: save coordination and conflict recovery (§9) in
+Phase 5, and XLSX/PPTX in Phase 4.
 
 XLSX/PPTX file actions and editors are Phase 4.
 

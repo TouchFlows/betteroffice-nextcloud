@@ -37,3 +37,38 @@
 .betteroffice-error {
 	padding: 16px;
 }
+
+.betteroffice-settings {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	max-width: 40em;
+}
+
+.betteroffice-settings-block {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	align-items: flex-start;
+}
+
+.betteroffice-settings-block label {
+	font-weight: bold;
+}
+
+.betteroffice-settings-block input {
+	width: 100%;
+}
+
+.betteroffice-settings-hint {
+	color: var(--color-text-maxcontrast, #555);
+	font-size: 0.9em;
+}
+
+.betteroffice-settings-secret {
+	font-family: monospace;
+}
+
+.betteroffice-settings-status--error {
+	color: var(--color-error, #c21818);
+}

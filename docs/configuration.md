@@ -21,28 +21,43 @@ secret and allowed origin.
 
 ## Nextcloud app
 
-No app-specific admin settings page exists yet. Until it lands, both values
-below are set with `occ` (run as the web server user):
+Everything the app needs is on its own admin settings page:
+
+**Settings → Administration → BetterOffice**
+
+Both values below can also be set with `occ` (run as the web server user),
+which is what provisioning scripts should use; the settings page is the
+same storage, just with a form in front of it.
 
 ### `relay_url`
 
 The collaboration relay's public base URL. `http(s)://` and `ws(s)://` are
 both accepted; the editor converts `http(s)` to `ws(s)` before connecting.
+Trailing slashes are dropped on save. Anything that is not an absolute URL
+with one of those schemes is refused on the settings page rather than
+stored, since it would break every editor's connection attempt.
+
+When it is unset (the default), the editor opens documents **without**
+collaboration — reading and saving keep working, and the editor says live
+collaboration is unavailable. Clearing the field disables collaboration the
+same way. It is never hardcoded in source (PLAN.md §14).
 
 ```bash
 occ config:app:set betteroffice relay_url --value="wss://relay.example.com"
+occ config:app:set betteroffice relay_url --value=""   # disable collaboration
 ```
-
-When it is unset (the default), the editor opens documents **without**
-collaboration -- reading and saving keep working, and the editor says live
-collaboration is unavailable. It is never hardcoded in source (PLAN.md §14).
 
 ### `collaboration_secret`
 
 The secret shared with the relay, used to sign and verify collaboration
 tokens (PLAN.md §8.5). It auto-generates on first use
-(`SharedSecretService`) -- but with no settings UI yet, read it back out to
-copy into the relay's `BETTEROFFICE_RELAY_SHARED_SECRET`:
+(`SharedSecretService`) and is shown on the settings page, which is where
+you copy it from into the relay's `BETTEROFFICE_RELAY_SHARED_SECRET`.
+
+**Regenerate secret** on that page issues a new value. Every token already
+issued stops verifying immediately, so open editors lose collaboration
+until the relay is updated with the new secret and restarted — that is the
+point of the button: it revokes a secret that has leaked.
 
 ```bash
 occ config:app:get betteroffice collaboration_secret
@@ -51,5 +66,5 @@ occ config:app:get betteroffice collaboration_secret
 ## Hostnames
 
 Never hardcode a relay hostname anywhere in `app/` — it is deployment
-configuration (PLAN.md §14), read from the app's own (not-yet-built) admin
-settings or app config, not a constant in source.
+configuration (PLAN.md §14), read from the app's admin settings (app config),
+not a constant in source.
