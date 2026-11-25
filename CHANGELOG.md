@@ -104,6 +104,13 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 
 ### Fixed
 
+- `[relay]` A read-only participant's rejected edit could still reach the
+  room by reconnecting. The relay only refused *Update* frames, but the room
+  asks every new peer for its state (`SyncStep1`), so the peer's answer
+  (`SyncStep2`) carried its local — rejected — edit into the room. Those
+  answers are now dropped rather than applied, and deliberately not closed:
+  every peer sends one when it joins, so closing would disconnect read-only
+  participants before they could receive the document.
 - `[app]` The collaboration e2e mock gave every test execution the same
   room, so `--repeat-each` and parallel runs shared one seed and one edit
   history and failed on the previous run's text. Each execution now asks for

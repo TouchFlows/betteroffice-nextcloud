@@ -4,6 +4,9 @@ import { createServer, type Server } from 'node:http';
 import { createHmac, randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import mariadb from 'mariadb';
+import * as Y from 'yjs';
+import * as encoding from 'lib0/encoding';
+import * as syncProtocol from 'y-protocols/sync.js';
 import { loadConfig, type RelayServerConfig } from '../src/config.js';
 import { attachCollaborationServer } from '../src/wsServer.js';
 import type { CollaborationTokenClaims } from '../src/token.js';
@@ -43,6 +46,9 @@ async function withServer(run: (port: number) => Promise<void>): Promise<void> {
 	try {
 		await run(address.port);
 	} finally {
+		// A test that fails mid-way can leave a socket open, and `close()` waits
+		// for every connection to end -- so drop them first instead of hanging.
+		server.closeAllConnections?.();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}
 }
@@ -152,6 +158,86 @@ test('a read-only token may complete the sync handshake so it can receive the do
 		await waitForClose(socket);
 		socket.terminate();
 	});
+});
+
+/** The frame a client answers the room's SyncStep1 with: its whole state. */
+function syncStep2Frame(doc: Y.Doc): Uint8Array {
+	const encoder = encoding.createEncoder();
+	encoding.writeVarUint(encoder, 0);
+	syncProtocol.writeSyncStep2(encoder, doc);
+	return encoding.toUint8Array(encoder);
+}
+
+function docWithText(text: string): Y.Doc {
+	const doc = new Y.Doc();
+	doc.getText('body').insert(0, text);
+	return doc;
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Connects and records every frame from the moment the socket exists, so the
+ * room's own join frames cannot arrive before the recording starts.
+ */
+async function openRoomSocket(
+	port: number,
+	roomId: string,
+	role: 'read' | 'write',
+): Promise<{ socket: WebSocket; received: Buffer[] }> {
+	const socket = new WebSocket(`ws://127.0.0.1:${port}/room/${roomId}?token=${token({ roomId, role })}`, {
+		origin: ALLOWED_ORIGIN,
+	});
+	const received: Buffer[] = [];
+	socket.on('message', (data: Buffer) => received.push(Buffer.from(data)));
+	await waitForOpen(socket);
+	return { socket, received };
+}
+
+test("a read-only token's SyncStep2 answer is dropped instead of merged into the room", async () => {
+	const marker = 'READONLY-MARKER';
+	const opened: WebSocket[] = [];
+	try {
+		await withServer(async (port) => {
+			// Control: from a write peer the very same frame does reach the room,
+			// so the assertion below fails if the frame is not actually dropped.
+			const controlRoom = `room-${randomUUID()}`;
+			const writer = await openRoomSocket(port, controlRoom, 'write');
+			opened.push(writer.socket);
+			writer.socket.send(syncStep2Frame(docWithText(marker)));
+			await sleep(100);
+			const observer = await openRoomSocket(port, controlRoom, 'write');
+			opened.push(observer.socket);
+			await sleep(400);
+			assert.ok(
+				Buffer.concat(observer.received).includes(marker),
+				"a write peer's SyncStep2 must reach the room (control)",
+			);
+
+			// A read peer answers the room's own SyncStep1 the moment it joins, so
+			// that answer must be dropped rather than close the connection -- but
+			// it must not reach the room either, or a participant whose edit was
+			// just rejected could push it in by reconnecting.
+			const roomId = `room-${randomUUID()}`;
+			const reader = await openRoomSocket(port, roomId, 'read');
+			opened.push(reader.socket);
+			reader.socket.send(syncStep2Frame(docWithText(marker)));
+			await sleep(200);
+			assert.equal(reader.socket.readyState, WebSocket.OPEN);
+			const peer = await openRoomSocket(port, roomId, 'write');
+			opened.push(peer.socket);
+			await sleep(400);
+			assert.ok(!Buffer.concat(peer.received).includes(marker));
+
+			// Closed before the server does, so its `close()` has nothing to wait
+			// for even when an assertion above throws.
+			for (const socket of opened) socket.terminate();
+		});
+	} finally {
+		for (const socket of opened) socket.terminate();
+	}
 });
 
 test('a text frame is rejected -- binary only', async () => {

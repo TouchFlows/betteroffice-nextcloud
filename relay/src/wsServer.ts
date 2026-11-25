@@ -8,8 +8,10 @@ import { verifyCollaborationToken, TokenVerificationError } from './token.js';
 
 const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 const MESSAGE_SYNC = 0;
-/** `y-protocols/sync` subtype of an Update frame: the only sync frame that carries an edit. */
+/** `y-protocols/sync` subtype of an Update frame: carries an edit. */
 const SYNC_SUBTYPE_UPDATE = 2;
+/** `y-protocols/sync` subtype of the answer to a SyncStep1: also carries state. */
+const SYNC_SUBTYPE_SYNC_STEP_2 = 1;
 
 /**
  * Wires the collaboration WebSocket endpoint (`/room/:roomId`) into an
@@ -83,24 +85,24 @@ export function attachCollaborationServer(
 			return false;
 		}
 		// §8.5/§13: a read-only token must never be allowed to submit an
-		// editing update. Only a sync-protocol *Update* frame (message type
-		// 0, sync subtype 2) carries an edit: the sync handshake --
-		// SyncStep1 asking for the room's state, SyncStep2 answering with it
-		// -- must still go through, or a read-only participant could never
-		// receive the document it is supposed to be reading, and every
-		// `CollaborationProvider` sends that handshake the moment it opens.
-		// Awareness (presence) traffic is not an edit either, so read-only
-		// participants may still broadcast cursor/selection state.
+		// editing update. Two client frames carry state: an *Update*, and a
+		// *SyncStep2* -- the answer to the SyncStep1 the room sends every new
+		// peer. The Update is an outright violation, so it closes the
+		// connection. The SyncStep2 is dropped instead of closing, because the
+		// peer only sends it when the room asks: closing would disconnect every
+		// read-only participant at join, and letting it through would let a
+		// participant whose edit was just rejected push that edit in by
+		// reconnecting (the handshake re-sends its local state). SyncStep1 and
+		// awareness (presence) traffic stay allowed, so a read-only participant
+		// still receives the document and broadcasts cursor/selection state.
 		// Both leading bytes are single-byte varints (the values are well
 		// under 128), so reading them positionally is exact.
-		if (
-			role === 'read' &&
-			data.byteLength >= 2 &&
-			data[0] === MESSAGE_SYNC &&
-			data[1] === SYNC_SUBTYPE_UPDATE
-		) {
-			socket.close(1008, 'Read-only token cannot submit edits');
-			return false;
+		if (role === 'read' && data.byteLength >= 2 && data[0] === MESSAGE_SYNC) {
+			if (data[1] === SYNC_SUBTYPE_UPDATE) {
+				socket.close(1008, 'Read-only token cannot submit edits');
+				return false;
+			}
+			if (data[1] === SYNC_SUBTYPE_SYNC_STEP_2) return false;
 		}
 		return undefined;
 	}
