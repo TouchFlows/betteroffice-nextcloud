@@ -5,7 +5,11 @@ export default defineConfig({
 	testDir: '.',
 	timeout: 30_000,
 	fullyParallel: false,
-	workers: 1,
+	// Two workers: files run side by side, tests inside a file stay serial
+	// because each drives its own browser pair. Safe because every execution
+	// gets its own room and its own document-mock state (fixtures.ts), which is
+	// what the --repeat-each=2 guard in CI keeps honest.
+	workers: 2,
 	use: {
 		baseURL: 'http://localhost:5184',
 		// Kept only for the run that failed: a trace is the DOM, network and

@@ -125,6 +125,12 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   second pass — is the one where an assertion diff alone says nothing about
   what the other browser, the relay or the roster were doing at that moment.
 
+- `[app]` The e2e suite runs on two workers instead of one. The two spec files
+  are independent because every execution gets its own room and its own
+  document-mock state, so the repeated suite (`--repeat-each=2`, 16 tests) went
+  from 1.3–1.5m to 46–49s over three consecutive green local runs; the
+  second-pass guard above is what would catch a room leaking between them.
+
 ### Fixed
 
 - `[app]` The presence-token-refresh e2e test slept a fixed 12 seconds and then
