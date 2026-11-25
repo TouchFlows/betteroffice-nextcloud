@@ -11,14 +11,16 @@ import { newContext, test } from './fixtures';
  * retrying it until the reuse window ran out would leave the editor listing no
  * collaborators for minutes. A refusal must drop it and resolve a new session
  * straight away.
+ *
+ * The refusal comes from revoking the room's tokens
+ * (`POST /__test__/revoke-token`, mockCollaborationApi.ts) rather than from
+ * waiting out a short lifetime: the relay refuses a withdrawn token exactly as
+ * it refuses an expired one, so the test costs one presence refresh instead of
+ * a five-second expiry plus however the refresh loop then lined up with it.
  */
 test.describe('docx: presence token refresh', () => {
 	test('a token the relay refuses is replaced instead of retried', async ({ browser, request, room }) => {
-		test.setTimeout(180_000);
-
-		// Short-lived tokens, so the cached one expires inside the test.
-		const TOKEN_TTL_SECONDS = 5;
-		await request.post(`/__test__/token-ttl?seconds=${TOKEN_TTL_SECONDS}&room=${room}`);
+		test.setTimeout(120_000);
 
 		const aliceContext = await newContext(browser, room);
 		const bobContext = await newContext(browser, room);
@@ -39,33 +41,28 @@ test.describe('docx: presence token refresh', () => {
 
 			await openEditor(alice);
 			await openEditor(bob);
-
-			const bobEntry = alice.locator('[data-collaboration-role="write"]');
-			await expect(bobEntry).toContainText('Bob', { timeout: 30_000 });
 			const sessionsBefore = sessionRequests.length;
 
-			// Presence can only be refused once the cached token has expired, and
-			// nothing in the page exposes its `exp`, so the lifetime itself has to
-			// be waited out. Just past it, not an arbitrary 12s: a fixed wait also
-			// had to cover however long the refresh loop then took, which is what
-			// timed out when the machine was busy.
-			await alice.waitForTimeout(TOKEN_TTL_SECONDS * 1_000 + 1_000);
+			// Withdraw the tokens this room has been issued. Presence is reusing
+			// one of them, and the relay now refuses it.
+			const revoked = await request.post(`/__test__/revoke-token?room=${room}`);
+			expect(revoked.status(), 'the harness could not revoke the room’s tokens').toBe(204);
 
-			// Without the refresh every read after the first refusal fails, so the
+			// Without the refresh every read after the refusal fails, so the
 			// roster stays empty until the four-minute reuse window ends. Poll the
 			// observable consequence -- a second session resolved -- instead of
 			// asserting on the roster after a fixed wait.
 			await expect
 				.poll(() => sessionRequests.length, {
-					timeout: 30_000,
-					message:
-						'the editor kept retrying the refused token instead of resolving a new session',
+					timeout: 20_000,
+					message: 'the editor kept retrying the refused token instead of resolving a new session',
 				})
 				.toBeGreaterThan(sessionsBefore);
 
-			await expect(bobEntry, 'presence stayed blind after its token expired').toContainText('Bob', {
-				timeout: 10_000,
-			});
+			await expect(
+				alice.locator('[data-collaboration-role="write"]'),
+				'presence stayed blind after the relay refused its token',
+			).toContainText('Bob', { timeout: 10_000 });
 		} finally {
 			await aliceContext.close();
 			await bobContext.close();

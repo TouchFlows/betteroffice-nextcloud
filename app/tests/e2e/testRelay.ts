@@ -9,6 +9,8 @@
 export const TEST_RELAY_PORT = 8788;
 export const TEST_RELAY_ORIGIN = 'http://localhost:5184';
 export const TEST_RELAY_URL = `ws://127.0.0.1:${TEST_RELAY_PORT}`;
+/** The relay's own HTTP origin: the mock's revoke control route calls it. */
+export const TEST_RELAY_HTTP_ORIGIN = `http://127.0.0.1:${TEST_RELAY_PORT}`;
 export const TEST_SHARED_SECRET = 'e2e-only-collaboration-secret';
 
 /**
@@ -26,5 +28,8 @@ export function relayEnvironment(): Record<string, string> {
 		BETTEROFFICE_RELAY_DB_PASSWORD: process.env.BETTEROFFICE_RELAY_DB_PASSWORD ?? 'test_only_password',
 		BETTEROFFICE_RELAY_SHARED_SECRET: TEST_SHARED_SECRET,
 		BETTEROFFICE_RELAY_ALLOWED_ORIGIN: TEST_RELAY_ORIGIN,
+		// Serves the relay's token-revocation route, which this harness's mock
+		// calls to withdraw a token without waiting out its lifetime.
+		BETTEROFFICE_RELAY_TEST_CONTROL: '1',
 	};
 }

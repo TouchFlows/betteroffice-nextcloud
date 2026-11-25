@@ -153,6 +153,14 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 
 ### Fixed
 
+- `[app]` The presence-token-refresh e2e test no longer waits for a token to
+  expire: the mock collaboration API gained
+  `POST /__test__/revoke-token?room=`, which withdraws that room's tokens
+  through the relay's control route, so the test reaches "the relay refuses
+  this token" in one presence refresh instead of a five-second lifetime plus
+  however the refresh loop then lined up with it (12.5s → 6.5–7.3s, and it no
+  longer depends on the clock at all).
+
 - `[app]` The presence-token-refresh e2e test slept a fixed 12 seconds and then
   gave the roster 10 more, so one number had to cover both the token lifetime
   and however long the refresh loop then took — and it still timed out on a
