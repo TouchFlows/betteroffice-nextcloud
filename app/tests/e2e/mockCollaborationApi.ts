@@ -1,4 +1,5 @@
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHmac } from 'node:crypto';
+import { DEFAULT_E2E_ROOM_ID, roomCookieValue } from './e2eRoom';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { TEST_RELAY_ORIGIN, TEST_SHARED_SECRET } from './testRelay';
@@ -39,13 +40,6 @@ import { TEST_RELAY_ORIGIN, TEST_SHARED_SECRET } from './testRelay';
  * URL in the token points at this server's own placeholder image.
  */
 
-// The room a context asks for; set per test execution by collaboration.spec.ts.
-// A cookie rather than a header on purpose: the presence roster is fetched
-// cross-origin from the relay, and a custom header would make that request
-// non-simple, so the browser would preflight it and the relay would refuse it.
-const ROOM_COOKIE = 'betteroffice-e2e-room';
-// Only for a request that names no room at all (Vite's own dev client, say).
-const DEFAULT_ROOM_ID = `e2e-room-default-${randomUUID()}`;
 const DEFAULT_TOKEN_TTL_SECONDS = 300;
 const SESSION_PATH = '/index.php/apps/betteroffice/collab/session';
 const ROLE_COOKIE = 'betteroffice-e2e-role';
@@ -79,14 +73,14 @@ function requestedName(request: IncomingMessage): string {
 }
 
 /**
- * The room this request belongs to. The harness sets `ROOM_COOKIE` on every
- * context it opens, so two contexts in one test share a room and two tests
- * never do -- which is what keeps a repeated or parallel run from inheriting
- * another run's seed and edits (the relay persists both in MariaDB).
+ * The room this request belongs to. The harness sets `E2E_ROOM_COOKIE` on
+ * every context it opens (`fixtures.ts`), so two contexts in one test share a
+ * room and two tests never do -- which is what keeps a repeated or parallel
+ * run from inheriting another run's seed and edits (the relay persists both
+ * in MariaDB).
  */
 function requestedRoom(request: IncomingMessage): string {
-	const room = cookieValue(request, ROOM_COOKIE) ?? '';
-	return room === '' ? DEFAULT_ROOM_ID : room;
+	return roomCookieValue(request.headers.cookie) ?? DEFAULT_E2E_ROOM_ID;
 }
 
 function base64Url(buffer: Buffer): string {
