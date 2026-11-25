@@ -89,7 +89,11 @@ export class WsCollaborationTransport implements CollaborationTransport {
 			this.scheduleDrain(socket);
 			return false;
 		}
-		socket.send(data);
+		// lib.dom types WebSocket.send as ArrayBufferView<ArrayBuffer>, so a
+		// Uint8Array<ArrayBufferLike> is rejected even though browsers accept it.
+		// Collaboration frames are always backed by a plain ArrayBuffer (they come
+		// from encoding.toUint8Array), so narrow to say that at the DOM boundary.
+		socket.send(data as Uint8Array<ArrayBuffer>);
 		return true;
 	}
 
