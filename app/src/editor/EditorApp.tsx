@@ -41,6 +41,13 @@ type CollaborationState =
 	| { phase: 'live'; status: CollaborationStatus; synced: boolean; peers: number }
 	| { phase: 'failed' };
 
+/**
+ * Backoff for reconnecting after the relay drops the socket, capped rather
+ * than giving up: a relay restart or a laptop waking up should heal on its
+ * own without the user reloading.
+ */
+const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 15_000];
+
 function documentUrl(fileId: number): string {
 	return generateUrl('/apps/betteroffice/document/{fileId}', { fileId });
 }
@@ -48,6 +55,8 @@ function documentUrl(fileId: number): string {
 export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorRef }: EditorAppProps) {
 	const editorRef = useRef<DocxEditorRef>(null);
 	const providerRef = useRef<CollaborationProvider | null>(null);
+	const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const reconnectAttempts = useRef(0);
 	const [documentBuffer, setDocumentBuffer] = useState<ArrayBuffer>();
 	const [etag, setEtag] = useState<string>();
 	const [loadError, setLoadError] = useState<string>();
@@ -128,26 +137,62 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 		};
 	}, [documentBuffer, fileId, relayUrl, clientId]);
 
+	const clearReconnect = useCallback(() => {
+		if (reconnectTimer.current !== null) {
+			clearTimeout(reconnectTimer.current);
+			reconnectTimer.current = null;
+		}
+	}, []);
+
+	const scheduleReconnect = useCallback(() => {
+		if (reconnectTimer.current !== null) return;
+		const delay = RECONNECT_DELAYS_MS[Math.min(reconnectAttempts.current, RECONNECT_DELAYS_MS.length - 1)];
+		reconnectAttempts.current += 1;
+		reconnectTimer.current = setTimeout(() => {
+			reconnectTimer.current = null;
+			const provider = providerRef.current;
+			if (provider && provider.status === 'disconnected') provider.connect();
+		}, delay);
+	}, []);
+
 	useEffect(
 		() => () => {
+			clearReconnect();
 			providerRef.current?.destroy();
 			providerRef.current = null;
 		},
-		[],
+		[clearReconnect],
 	);
 
 	const handleReplica = useCallback(
 		(replica: CollaborationReplica | null) => {
+			clearReconnect();
+			reconnectAttempts.current = 0;
 			providerRef.current?.destroy();
 			providerRef.current = null;
 			if (!replica || !session || relayUrl === '') return;
 
-			const transport = new WsCollaborationTransport(
-				relaySocketUrl(relayUrl, session.roomId, session.token),
-			);
+			// A fresh session per connection attempt: the token is short-lived
+			// (`RoomService::TOKEN_TTL_SECONDS`, five minutes), so reusing the
+			// one this editor opened with would have every reconnect after that
+			// rejected by the relay -- leaving the editor stuck reconnecting.
+			const transport = new WsCollaborationTransport(async () => {
+				const fresh = await requestCollaborationSession(fileId);
+				return relaySocketUrl(relayUrl, fresh.roomId, fresh.token);
+			});
 			const provider = new CollaborationProvider(replica, transport, { user: { name: authorName } });
 			provider.onStatus(({ status, synced }) => {
 				setCollaboration((current) => (current.phase === 'live' ? { ...current, status, synced } : current));
+				if (status === 'connected') {
+					reconnectAttempts.current = 0;
+					clearReconnect();
+				} else if (status === 'disconnected') {
+					// The provider does not retry by itself (its bundled source
+					// only reports the status change), so reconnecting is the
+					// host's job -- and each attempt gets a fresh token from the
+					// transport's resolver.
+					scheduleReconnect();
+				}
 			});
 			provider.onPeers((peers) => {
 				setCollaboration((current) => (current.phase === 'live' ? { ...current, peers: peers.length } : current));
@@ -155,7 +200,7 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 			provider.connect();
 			providerRef.current = provider;
 		},
-		[relayUrl, session, authorName],
+		[clearReconnect, scheduleReconnect, fileId, relayUrl, session, authorName],
 	);
 
 	// A fresh object here would re-open the editor on every render, so it is
