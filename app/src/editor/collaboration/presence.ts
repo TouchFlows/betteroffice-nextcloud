@@ -42,7 +42,7 @@ export function presenceUrl(relayUrl: string, roomId: string): string {
  * tell this apart from a transient failure and resolve a new session instead.
  */
 export class PresenceAuthError extends Error {
-	constructor(readonly status: number) {
+	constructor(status: number) {
 		super(`Presence request was refused: ${status}`);
 		this.name = 'PresenceAuthError';
 	}
