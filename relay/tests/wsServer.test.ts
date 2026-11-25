@@ -121,10 +121,35 @@ test('a read-only token may connect but has its sync (edit) frames rejected', as
 		await waitForOpen(socket);
 
 		const closed = waitForClose(socket);
-		// Message type 0 (sync) is an edit attempt; byte 0 is the varint-encoded message type.
-		socket.send(new Uint8Array([0, 1, 2]));
+		// Message type 0 (sync), subtype 2 (Update) is an edit attempt; both
+		// leading bytes are single-byte varints.
+		socket.send(new Uint8Array([0, 2, 1, 2]));
 		const { code } = await closed;
 		assert.equal(code, 1008);
+		socket.terminate();
+	});
+});
+
+test('a read-only token may complete the sync handshake so it can receive the document', async () => {
+	await withServer(async (port) => {
+		const roomId = `room-${randomUUID()}`;
+		const readToken = token({ roomId, role: 'read' });
+		const socket = new WebSocket(`ws://127.0.0.1:${port}/room/${roomId}?token=${readToken}`, {
+			origin: ALLOWED_ORIGIN,
+		});
+		await waitForOpen(socket);
+
+		// Message type 0 (sync), subtype 0 (SyncStep1), then a length-1
+		// state vector holding a single varint 0 ("no clients") -- exactly
+		// what a read-only client sends on open. Gating every
+		// message-type-0 frame would close this connection before it could
+		// ever receive the document, so this must stay open.
+		socket.send(new Uint8Array([0, 0, 1, 0]));
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		assert.equal(socket.readyState, WebSocket.OPEN);
+
+		socket.close();
+		await waitForClose(socket);
 		socket.terminate();
 	});
 });
