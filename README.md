@@ -1,5 +1,15 @@
 # BetterOffice for Nextcloud
 
+A native office collaboration experience for Nextcloud.
+
+BetterOffice for Nextcloud is an open-source Nextcloud application integrating BetterOffice's WebAssembly-based editors for Word, Excel and PowerPoint documents.
+
+Edit DOCX, XLSX and PPTX files directly within Nextcloud, with real-time collaboration supported by a self-hosted relay.
+
+Designed to provide an integrated, self-hosted alternative to external office document services, without depending on Collabora or ONLYOFFICE.
+
+Project status: Early development. Not yet intended for production deployment.
+
 A native Nextcloud application that opens, edits and collaborates on DOCX,
 XLSX and PPTX files using [BetterOffice](https://betteroffice.dev/)'s
 WebAssembly editors, with real-time collaboration served by a self-hosted
