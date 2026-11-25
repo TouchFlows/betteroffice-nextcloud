@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace OCA\BetterOffice\Controller;
 
+use OCA\BetterOffice\Service\EditorContentSecurityPolicy;
 use OCA\BetterOffice\Service\FileAccessDeniedException;
 use OCA\BetterOffice\Service\FileAccessService;
 use OCA\BetterOffice\Service\FileNotFoundException;
@@ -58,15 +59,22 @@ class EditorController extends Controller {
 		Util::addScript('betteroffice', 'betteroffice-editor');
 		Util::addStyle('betteroffice', 'style');
 
-		return new TemplateResponse('betteroffice', 'editor', [
+		// Deployment configuration, not a constant (PLAN.md §14); empty until
+		// an admin sets it, which the frontend reads as "no collaboration
+		// configured" rather than an error.
+		$relayUrl = $this->relayConfig->getRelayUrl();
+
+		$response = new TemplateResponse('betteroffice', 'editor', [
 			'fileId' => $fileId,
 			'fileName' => $file->getName(),
 			'readOnly' => !$file->isUpdateable(),
-			// Deployment configuration, not a constant (PLAN.md §14); empty
-			// until an admin sets it, which the frontend reads as "no
-			// collaboration configured" rather than an error.
-			'relayUrl' => $this->relayConfig->getRelayUrl(),
+			'relayUrl' => $relayUrl,
 		]);
+		// Without this the page loads and then silently edits alone: the
+		// default policy refuses the WebAssembly engine and the relay.
+		$response->setContentSecurityPolicy(EditorContentSecurityPolicy::build($relayUrl));
+
+		return $response;
 	}
 
 	private function errorResponse(string $message, int $status): TemplateResponse {
