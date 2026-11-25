@@ -48,6 +48,23 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   `IAppConfig`, same pattern Nextcloud Talk uses for its signaling
   backend) — admin settings to display/regenerate it land with the
   frontend wiring next.
+- `[app]` Real-time collaboration in the DOCX editor (PLAN.md §8.2, §8.3,
+  §8.5, §8.6): `EditorController` exposes a `relay_url` app config key as
+  `data-relay-url` (`occ config:app:set betteroffice relay_url
+  --value=...` until the settings page lands); `EditorApp` resolves the
+  room and token, generates a seed and offers it through the
+  create-if-absent endpoint only when the room has none, adopts the
+  authoritative bytes it gets back, and connects a real
+  `CollaborationProvider` over a ported `WsCollaborationTransport`. A
+  minimal presence line reports connection state and peer count; a relay
+  that is unset or unreachable falls back to the previous
+  non-collaborative editor rather than blocking the document.
+- `[app]` Two-browser convergence proof: a Playwright spec drives two
+  independent sessions against the real relay and a real MariaDB, asserts
+  each sees the other's live edit, saves through `EditorApp`'s own save
+  path, and unzips the saved DOCX to confirm both peers' edits are in
+  `word/document.xml`. `app-ci.yml`'s frontend job runs it with a MariaDB
+  service container and the relay's schema migrated.
 
 ### Fixed
 
@@ -66,6 +83,12 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   literal pattern as a missing file. Switched to Node's own built-in test
   discovery (`node --test` with no path argument) instead of relying on the
   shell to glob it.
+- `[relay]` A read-only token could not connect at all: the frame gate
+  rejected every sync-protocol frame, including the SyncStep1 handshake a
+  `CollaborationProvider` sends the moment it opens, so a viewer was closed
+  out before it could receive the document it was meant to read. Only
+  Update frames (sync subtype 2) carry an edit and are rejected now; the
+  handshake and awareness traffic go through.
 
 - `[app]` The Files file action never loaded in a real Nextcloud: the
   listener was registered against `OCA\Files\Event\LoadAdditionalScriptsEvent`,
