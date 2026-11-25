@@ -81,6 +81,13 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
+
+      - name: Typecheck the e2e harness
+        # tests/e2e has its own tsconfig (Playwright and Node types); the root
+        # one only includes src/, so the specs and their mocks are otherwise
+        # the only TypeScript in the repo that CI never type-checks.
+        run: npm run typecheck:e2e
+
       - run: npm run build
 
       - name: Install relay dependencies and apply its schema
@@ -95,7 +102,10 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Editor e2e (mock Nextcloud API, real relay, real MariaDB — see docs/development.md)
-        run: npm run test:e2e
+        # Twice: each run gets its own room, and a single run cannot show that
+        # a repeated one starts clean. A shared room or shared mock state only
+        # fails on the second pass, so one pass would let that regress.
+        run: npm run test:e2e:repeat
 
       - name: Dependency audit (shipped bundle only — fails the build)
         run: npm audit --omit=dev

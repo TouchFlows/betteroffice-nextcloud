@@ -7,7 +7,9 @@
     "dev": "vite build --watch",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
+    "typecheck:e2e": "tsc --noEmit -p tests/e2e",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
+    "test:e2e:repeat": "playwright test --config tests/e2e/playwright.config.ts --repeat-each=2",
     "test:live": "node tests/live/presence-avatar.mjs"
   },
   "dependencies": {
