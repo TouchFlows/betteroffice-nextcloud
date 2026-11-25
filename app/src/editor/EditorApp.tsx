@@ -57,6 +57,15 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 	const providerRef = useRef<CollaborationProvider | null>(null);
 	const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reconnectAttempts = useRef(0);
+	/**
+	 * The session the seed handshake resolved, kept for the provider's first
+	 * connection. Opening a document resolves a session once already; asking
+	 * for a second one moments later only to open the socket is a redundant
+	 * round trip (and a second seed lookup). It is consumed by the first
+	 * connection attempt and never reused after that: a reconnect may come
+	 * long after the token's five-minute lifetime.
+	 */
+	const initialTokenRef = useRef<{ roomId: string; token: string } | null>(null);
 	const [documentBuffer, setDocumentBuffer] = useState<ArrayBuffer>();
 	const [etag, setEtag] = useState<string>();
 	const [loadError, setLoadError] = useState<string>();
@@ -86,6 +95,7 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 		setDocumentBuffer(undefined);
 		setInitialUpdate(undefined);
 		setSession(undefined);
+		initialTokenRef.current = null;
 		axios
 			.get<ArrayBuffer>(documentUrl(fileId), { responseType: 'arraybuffer' })
 			.then((response) => {
@@ -120,6 +130,7 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 				const seed = await resolveInitialUpdate(fileId, resolved, documentBuffer, clientId);
 				if (cancelled) return;
 				setSession(resolved);
+				initialTokenRef.current = { roomId: resolved.roomId, token: resolved.token };
 				setInitialUpdate(seed);
 				setCollaboration({ phase: 'live', status: 'connecting', synced: false, peers: 0 });
 			} catch (error) {
@@ -172,11 +183,17 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 			providerRef.current = null;
 			if (!replica || !session || relayUrl === '') return;
 
-			// A fresh session per connection attempt: the token is short-lived
+			// The first attempt reuses the session resolved for the seed; only a
+			// reconnect asks for a new one. The token is short-lived
 			// (`RoomService::TOKEN_TTL_SECONDS`, five minutes), so reusing the
-			// one this editor opened with would have every reconnect after that
+			// original token on a reconnect would have every attempt after that
 			// rejected by the relay -- leaving the editor stuck reconnecting.
 			const transport = new WsCollaborationTransport(async () => {
+				const initial = initialTokenRef.current;
+				if (initial) {
+					initialTokenRef.current = null;
+					return relaySocketUrl(relayUrl, initial.roomId, initial.token);
+				}
 				const fresh = await requestCollaborationSession(fileId);
 				return relaySocketUrl(relayUrl, fresh.roomId, fresh.token);
 			});

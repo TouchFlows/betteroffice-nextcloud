@@ -27,6 +27,9 @@ import { TEST_RELAY_URL } from './testRelay';
 
 const DOCUMENT_PATH = '/index.php/apps/betteroffice/document/1';
 const EDITOR_PATH = `/?fileId=1&fileName=demo.docx&relayUrl=${encodeURIComponent(TEST_RELAY_URL)}`;
+// Matches playwright.config.ts's baseURL; needed as an absolute origin to
+// scope a browser context's cookie to the harness.
+const ORIGIN = 'http://localhost:5184';
 
 interface ParagraphRead {
 	ok: boolean;
@@ -258,5 +261,107 @@ test.describe('docx: two browsers through the real relay', () => {
 
 		// And it actually got back in, rather than sitting on "Reconnecting…".
 		await expect(page.locator('[data-collaboration-status="connected"]')).toBeVisible({ timeout: 30_000 });
+	});
+});
+
+/**
+ * Opening a document resolves a collaboration session once, to seed the room.
+ * The provider's first connection must reuse that session's token rather than
+ * asking for a second one moments later; only a reconnect -- which can come
+ * after the token expired -- needs a fresh token.
+ */
+test.describe('docx: collaboration session lifecycle', () => {
+	test('the first connection reuses the session resolved for the seed', async ({ page, request }) => {
+		await request.post('/__test__/token-ttl?seconds=300');
+
+		const sessionRequests: string[] = [];
+		page.on('request', (outgoing) => {
+			if (outgoing.method() === 'POST' && outgoing.url().includes('/apps/betteroffice/collab/session/')) {
+				sessionRequests.push(outgoing.url());
+			}
+		});
+
+		await openEditor(page);
+
+		expect(
+			sessionRequests,
+			'the first connection asked for a second collaboration session instead of reusing the one the seed handshake resolved',
+		).toHaveLength(1);
+	});
+});
+
+/**
+ * PLAN.md §8.5/§13: the role in the collaboration token is enforced by the
+ * relay, not by the editor UI -- a client that ignores its read-only role must
+ * still be unable to change the document. The viewer here is exactly such a
+ * client: it opens with a read-only token but a writable editor, so its edit is
+ * really sent, and the relay is what has to stop it.
+ */
+test.describe('docx: read-only participant', () => {
+	test('a viewer receives the document and the relay rejects its edit', async ({ browser, request }) => {
+		test.setTimeout(120_000);
+
+		await request.post('/__test__/token-ttl?seconds=300');
+
+		const writerContext = await browser.newContext();
+		const viewerContext = await browser.newContext();
+		// The real app derives the role from the user's file permissions; the
+		// mock has no Nextcloud to consult, so a per-context cookie tells it
+		// which of these two sessions is the viewer.
+		await viewerContext.addCookies([{ name: 'betteroffice-e2e-role', value: 'read', url: ORIGIN }]);
+		// A rejection is the relay closing this viewer's socket, and the close
+		// code is the only place that is observable from the page.
+		await viewerContext.addInitScript(() => {
+			const closes: Array<{ code: number; reason: string; url: string }> = [];
+			(window as unknown as { __testSocketCloses: typeof closes }).__testSocketCloses = closes;
+			const Native = window.WebSocket;
+			class TrackingWebSocket extends Native {
+				constructor(url: string | URL, protocols?: string | string[]) {
+					super(url, protocols);
+					this.addEventListener('close', (event) => {
+						closes.push({ code: event.code, reason: event.reason, url: String(url) });
+					});
+				}
+			}
+			(window as unknown as { WebSocket: typeof WebSocket }).WebSocket = TrackingWebSocket;
+		});
+
+		const writer = await writerContext.newPage();
+		const viewer = await viewerContext.newPage();
+
+		try {
+			await openEditor(writer);
+			const baseline = await firstParagraphText(writer);
+			await appendText(writer, ' [from-writer]');
+
+			// The viewer's seed predates the writer's edit, so seeing it can only
+			// mean the relay delivered the update to a read-only token.
+			await openEditor(viewer);
+			await expect.poll(() => firstParagraphText(viewer), { timeout: 20_000 }).toContain('[from-writer]');
+
+			await appendText(viewer, ' [from-viewer]');
+			expect(await firstParagraphText(viewer), 'the viewer never attempted an edit').toContain('[from-viewer]');
+
+			await expect
+				.poll(
+					() =>
+						viewer.evaluate(() =>
+							(window as unknown as { __testSocketCloses: Array<{ code: number; url: string }> })
+								.__testSocketCloses.filter((close) => new URL(close.url).pathname.startsWith('/room/'))
+								.map((close) => close.code),
+						),
+					{ timeout: 20_000 },
+				)
+				.toContain(1008);
+
+			// Rejected means it never reached the room.
+			await writer.waitForTimeout(1_000);
+			expect(await firstParagraphText(writer)).not.toContain('[from-viewer]');
+			expect(await firstParagraphText(writer)).toContain('[from-writer]');
+			expect(baseline).not.toContain('[from-writer]');
+		} finally {
+			await writerContext.close();
+			await viewerContext.close();
+		}
 	});
 });

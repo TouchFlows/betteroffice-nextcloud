@@ -65,6 +65,11 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   path, and unzips the saved DOCX to confirm both peers' edits are in
   `word/document.xml`. `app-ci.yml`'s frontend job runs it with a MariaDB
   service container and the relay's schema migrated.
+- `[app]` Read-only collaboration, proven end to end: a Playwright test joins
+  the real relay with a read-only token, receives the writer's document over
+  the socket, then edits and asserts the relay closes it (code 1008) so
+  nothing it writes reaches the room. `mockCollaborationApi.ts` can issue a
+  read-only session to one browser context.
 
 ### Fixed
 
@@ -90,6 +95,10 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   the editor sat on "Reconnecting…". The transport now resolves a fresh
   session URL and token per connection attempt, and `EditorApp` drives
   reconnection with a capped backoff.
+- `[app]` Opening a document requested a collaboration session twice — once
+  for the seed, then again for the transport's first connection. The first
+  connection now reuses the token the seed handshake already resolved; only
+  a reconnect asks for a fresh one.
 - `[relay]` A read-only token could not connect at all: the frame gate
   rejected every sync-protocol frame, including the SyncStep1 handshake a
   `CollaborationProvider` sends the moment it opens, so a viewer was closed

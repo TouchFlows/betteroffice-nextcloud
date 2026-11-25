@@ -24,6 +24,11 @@ import { TEST_SHARED_SECRET } from './testRelay';
  * (`POST /__test__/token-ttl?seconds=N`, like mockDocumentApi.ts's
  * `force-conflict`), so a test can reach expiry without waiting five
  * minutes.
+ *
+ * A browser context that sends the `betteroffice-e2e-role=read` cookie is
+ * treated as a viewer: the real app derives the role from the user's file
+ * permissions, which this mock has no Nextcloud to consult, and a per-context
+ * cookie is what lets one test run a writer and a viewer side by side.
  */
 
 // Unique per run: the relay persists a room's updates in MariaDB, so a fixed
@@ -31,19 +36,27 @@ import { TEST_SHARED_SECRET } from './testRelay';
 const ROOM_ID = `e2e-room-${randomUUID()}`;
 const DEFAULT_TOKEN_TTL_SECONDS = 300;
 const SESSION_PATH = '/index.php/apps/betteroffice/collab/session';
+const ROLE_COOKIE = 'betteroffice-e2e-role';
+
+type CollaborationRole = 'read' | 'write';
+
+function requestedRole(request: IncomingMessage): CollaborationRole {
+	const cookies = (request.headers.cookie ?? '').split(';').map((part) => part.trim());
+	return cookies.includes(`${ROLE_COOKIE}=read`) ? 'read' : 'write';
+}
 
 function base64Url(buffer: Buffer): string {
 	return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function issueToken(ttlSeconds: number): string {
+function issueToken(ttlSeconds: number, role: CollaborationRole): string {
 	const claims = {
 		iid: 'e2e-instance',
 		sub: 'alice',
 		fid: 1,
 		roomId: ROOM_ID,
 		format: 'docx',
-		role: 'write',
+		role,
 		exp: Math.floor(Date.now() / 1000) + ttlSeconds,
 		jti: `e2e-${Date.now()}`,
 	};
@@ -122,10 +135,11 @@ export function mockCollaborationApi(): Plugin {
 					response.end();
 					return;
 				}
+				const role = requestedRole(request);
 				sendJson(response, 200, {
 					roomId: ROOM_ID,
-					token: issueToken(tokenTtlSeconds),
-					role: 'write',
+					token: issueToken(tokenTtlSeconds, role),
+					role,
 					seed: seed === null ? null : seed.toString('base64'),
 				});
 			});
