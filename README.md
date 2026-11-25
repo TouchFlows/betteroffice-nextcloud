@@ -49,3 +49,9 @@ tracked as dependencies are added; see PLAN.md §2.1.
 ## Security
 
 See [SECURITY.md](SECURITY.md) for how to report a vulnerability.
+
+## Support this project
+
+If you find this project useful, consider supporting its development.
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=github)](https://github.com/sponsors/marktamis)
