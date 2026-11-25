@@ -3,7 +3,6 @@ import { createHealthServer } from './app.js';
 import { loadServerConfig } from './config.js';
 import { handlePresenceRequest } from './presence.js';
 import { RoomRegistry } from './roomRegistry.js';
-import { createTokenRevocationControl } from './testControl.js';
 import { attachCollaborationServer } from './wsServer.js';
 
 /**
@@ -17,15 +16,10 @@ import { attachCollaborationServer } from './wsServer.js';
 const config = loadServerConfig();
 const pool = mariadb.createPool(config.database);
 const registry = new RoomRegistry(pool);
-// Empty unless the harness's control route is enabled and called: nothing in
-// a deployment revokes a token, because the route that would is not served.
-const revokedJtis = new Set<string>();
-const control = config.testControl ? createTokenRevocationControl(revokedJtis) : undefined;
-const server = createHealthServer((request, response) => {
-	if (control?.(request, response)) return true;
-	return handlePresenceRequest(registry, config, request, response, revokedJtis);
-});
-const wss = attachCollaborationServer(server, config, pool, registry, revokedJtis);
+const server = createHealthServer((request, response) =>
+	handlePresenceRequest(registry, config, request, response),
+);
+const wss = attachCollaborationServer(server, config, pool, registry);
 
 server.listen(config.port, () => {
 	console.log(`[relay] listening on :${config.port}`);

@@ -75,21 +75,6 @@ test('a payload missing required claims is rejected as malformed', () => {
 	});
 });
 
-test('a token whose jti was revoked is rejected even with a valid signature', () => {
-	const claims = validClaims();
-	const token = sign(claims, SECRET);
-	// Verifies on its own terms, so only the withdrawal can be what refuses it.
-	assert.equal(verifyCollaborationToken(token, SECRET).jti, claims.jti);
-	assert.throws(
-		() => verifyCollaborationToken(token, SECRET, undefined, new Set([claims.jti])),
-		(error: unknown) => {
-			assert.ok(error instanceof TokenVerificationError);
-			assert.equal(error.reason, 'revoked');
-			return true;
-		},
-	);
-});
-
 test('a read role is preserved through verification', () => {
 	const claims = validClaims({ role: 'read' });
 	const token = sign(claims, SECRET);

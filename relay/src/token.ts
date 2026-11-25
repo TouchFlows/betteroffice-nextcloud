@@ -38,7 +38,7 @@ const MAX_NAME_LENGTH = 1024;
 const MAX_AVATAR_URL_LENGTH = 2048;
 
 export class TokenVerificationError extends Error {
-	constructor(readonly reason: 'malformed' | 'bad-signature' | 'expired' | 'revoked') {
+	constructor(readonly reason: 'malformed' | 'bad-signature' | 'expired') {
 		super(`collaboration token rejected: ${reason}`);
 	}
 }
@@ -47,17 +47,11 @@ function base64UrlDecode(segment: string): Buffer {
 	return Buffer.from(segment.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
 }
 
-/**
- * @param nowSeconds Injectable for tests; defaults to the real clock.
- * @param revokedJtis Token ids withdrawn after they were signed. A signature
- *   cannot be un-signed, so withdrawal is state the relay has to hold; the
- *   e2e harness is the only caller that fills it in (see `testControl.ts`).
- */
+/** @param nowSeconds Injectable for tests; defaults to the real clock. */
 export function verifyCollaborationToken(
 	token: string,
 	secret: string,
 	nowSeconds: number = Math.floor(Date.now() / 1000),
-	revokedJtis?: ReadonlySet<string>,
 ): CollaborationTokenClaims {
 	const parts = token.split('.');
 	if (parts.length !== 3) throw new TokenVerificationError('malformed');
@@ -98,9 +92,6 @@ export function verifyCollaborationToken(
 		throw new TokenVerificationError('malformed');
 	}
 	if (claims.exp <= nowSeconds) throw new TokenVerificationError('expired');
-	if (typeof claims.jti === 'string' && revokedJtis?.has(claims.jti)) {
-		throw new TokenVerificationError('revoked');
-	}
 
 	return claims;
 }

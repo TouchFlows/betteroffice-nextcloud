@@ -15,12 +15,7 @@ const ALLOWED_ORIGIN = 'https://cloud.example.test';
 const SHARED_SECRET = 'wsserver-test-secret';
 
 const pool = mariadb.createPool(loadConfig().database);
-const config: RelayServerConfig = {
-	...loadConfig(),
-	sharedSecret: SHARED_SECRET,
-	allowedOrigin: ALLOWED_ORIGIN,
-	testControl: false,
-};
+const config: RelayServerConfig = { ...loadConfig(), sharedSecret: SHARED_SECRET, allowedOrigin: ALLOWED_ORIGIN };
 
 function base64Url(buffer: Buffer): string {
 	return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
