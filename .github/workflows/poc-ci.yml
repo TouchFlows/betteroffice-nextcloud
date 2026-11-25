@@ -42,3 +42,11 @@ jobs:
         # The poc's tsconfig includes app/, relay/, shared/, tests/ and the two
         # config files, so this covers every TypeScript file in the tree.
         run: npx tsc --noEmit
+
+      - name: Build
+        # The production bundle is the only place the worker chunk from
+        # @betteroffice/docx is rolled up, and that step is where a bundler
+        # upgrade breaks: Vite 7 failed it with `Invalid value "iife" for
+        # option "worker.format"` while the typecheck stayed green. Building
+        # here turns that class of regression into a failed pull request.
+        run: npm run build:app
