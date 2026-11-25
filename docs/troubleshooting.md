@@ -20,6 +20,31 @@ Exclude every `@betteroffice/*` package from `optimizeDeps` in `vite.config.ts`
 once the app actually imports these packages in Phase 2). Full writeup:
 `poc/RECONNAISSANCE.md` §6.
 
+### The editor loads but silently edits alone, and nothing is logged
+
+The page opens, renders the document, and the status bar reads "Live
+collaboration is unavailable right now — you are editing on your own". Neither
+the Nextcloud log nor the relay log says anything, because the refusal happens
+in the browser: Nextcloud's default Content-Security-Policy blocks two things
+the editor cannot run without, and only the browser console reports it.
+
+Look for either of these in the console:
+
+- `Refused to compile or instantiate WebAssembly module ... 'wasm-unsafe-eval'`
+  — every BetterOffice editor is a WebAssembly module, and the default
+  `script-src` does not allow compiling one.
+- `Refused to connect to 'wss://relay.example' ... connect-src 'self'` — the
+  collaboration socket and the presence roster live on the relay, not on
+  Nextcloud.
+
+`lib/Service/EditorContentSecurityPolicy.php` is what makes the page work: it
+extends the default policy with `'wasm-unsafe-eval'` and with the configured
+relay's origin in `connect-src`, in both its `ws(s)://` and `http(s)://` forms.
+If you hit this, check that the installed app actually includes that class and
+that `relay_url` is set to an absolute URL — an empty or unparsable value adds
+no origin at all, and the editor then has nowhere to connect. `npm run
+test:live` fails on a missing policy and prints the violation it saw.
+
 ### `@betteroffice/xlsx` or `@betteroffice/pptx`'s `initWasm()` fails outside a browser
 
 Their default loader assumes `fetch()` can reach a relative URL, which

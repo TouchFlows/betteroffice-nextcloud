@@ -102,6 +102,14 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   status, any CSP violation and whether the relay answers `/health`, so a
   broken setup says which part is broken.
 
+- `[app]` The troubleshooting guide now covers the "editor loads but silently
+  edits alone" symptom, next to the existing WebAssembly entry: the
+  status-bar text the operator sees, the two Content Security Policy blocks to
+  look for in the browser console (WASM compilation, and the relay origin in
+  `connect-src`), and what to check. The refusal happens in the browser and
+  neither the Nextcloud log nor the relay log mentions it, so this was the one
+  failure mode with nowhere to look.
+
 ### Fixed
 
 - `[relay]` A read-only participant's rejected edit could still reach the
