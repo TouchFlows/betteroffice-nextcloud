@@ -15,9 +15,7 @@ import { test } from './fixtures';
 
 test('editor opens and renders the real document for real', async ({ page }) => {
 	await page.goto('/?fileId=1&fileName=demo.docx');
-	await expect(page.getByRole('menuitem', { name: 'ProofThisMenuDoesNotExist' })).toBeVisible({
-		timeout: 15_000,
-	});
+	await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible({ timeout: 15_000 });
 });
 
 test('Ctrl+S saves through the document API and reports saved', async ({ page }) => {
