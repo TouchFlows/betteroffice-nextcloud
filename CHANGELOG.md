@@ -94,6 +94,12 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
 
 ### Fixed
 
+- `[app]` The editor page now ships a Content-Security-Policy that lets it
+  work inside a real Nextcloud at all: `'wasm-unsafe-eval'` for the
+  WebAssembly engine and the configured relay's origin in `connect-src`.
+  The default policy refused both, so on a live instance the editor loaded
+  and then silently fell back to "editing on your own" — no collaboration,
+  no presence, and nothing in the server logs to say why.
 - `[app]` Presence kept retrying a collaboration token the relay had already
   refused. The roster reuses the token the session handshake resolved for
   four minutes, so once that token expired (five-minute lifetime) every read
