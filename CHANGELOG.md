@@ -131,6 +131,15 @@ diverge (PLAN.md §2.1) — entries below are tagged `[app]` / `[relay]` /
   from 1.3–1.5m to 46–49s over three consecutive green local runs; the
   second-pass guard above is what would catch a room leaking between them.
 
+- `[relay]` A harness-only token-revocation route
+  (`POST /__test__/revoke-token`, `relay/src/testControl.ts`), served only
+  when `BETTEROFFICE_RELAY_TEST_CONTROL=1`. A signature cannot be un-signed,
+  so withdrawing a token has to be state the relay holds: the route marks the
+  given `jti`s refused exactly as an expired token is, for presence reads and
+  for new connections alike, while participants already in the room stay.
+  Its purpose is the e2e harness, which can then reach "the relay refuses
+  this token" without waiting out a five-minute lifetime.
+
 ### Fixed
 
 - `[app]` The presence-token-refresh e2e test slept a fixed 12 seconds and then

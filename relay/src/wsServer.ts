@@ -28,6 +28,9 @@ export function attachCollaborationServer(
 	// Injectable so the presence endpoint can share the same live rooms
 	// (`presence.ts`); production wiring passes one registry for both.
 	registry: RoomRegistry = new RoomRegistry(pool),
+	// Shared with the presence endpoint (`server.ts`): a token withdrawn after
+	// it was issued must not admit a new connection either.
+	revokedJtis?: ReadonlySet<string>,
 ): WebSocketServer {
 	const wss = new WebSocketServer({ noServer: true });
 
@@ -52,7 +55,7 @@ export function attachCollaborationServer(
 
 		let participant: RoomParticipant;
 		try {
-			const claims = verifyCollaborationToken(token, config.sharedSecret);
+			const claims = verifyCollaborationToken(token, config.sharedSecret, undefined, revokedJtis);
 			if (claims.roomId !== roomId) {
 				socket.destroy();
 				return;

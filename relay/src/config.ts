@@ -19,6 +19,12 @@ export interface RelayServerConfig extends RelayConfig {
 	sharedSecret: string;
 	/** Exact origin the Nextcloud app is served from -- the relay rejects any other (§13 "Strict Origin validation"). */
 	allowedOrigin: string;
+	/**
+	 * Whether to serve the harness-only token-revocation route (`testControl.ts`).
+	 * Off unless `BETTEROFFICE_RELAY_TEST_CONTROL=1`: it is a mutation endpoint
+	 * with no authentication of its own, so a deployment must never expose it.
+	 */
+	testControl: boolean;
 }
 
 function required(name: string): string {
@@ -45,5 +51,6 @@ export function loadServerConfig(): RelayServerConfig {
 		...loadConfig(),
 		sharedSecret: required('BETTEROFFICE_RELAY_SHARED_SECRET'),
 		allowedOrigin: required('BETTEROFFICE_RELAY_ALLOWED_ORIGIN'),
+		testControl: process.env.BETTEROFFICE_RELAY_TEST_CONTROL === '1',
 	};
 }

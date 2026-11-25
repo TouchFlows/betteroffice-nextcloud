@@ -15,7 +15,12 @@ const ALLOWED_ORIGIN = 'https://cloud.example.test';
 const SHARED_SECRET = 'presence-test-secret';
 
 const pool = mariadb.createPool(loadConfig().database);
-const config: RelayServerConfig = { ...loadConfig(), sharedSecret: SHARED_SECRET, allowedOrigin: ALLOWED_ORIGIN };
+const config: RelayServerConfig = {
+	...loadConfig(),
+	sharedSecret: SHARED_SECRET,
+	allowedOrigin: ALLOWED_ORIGIN,
+	testControl: false,
+};
 
 function base64Url(buffer: Buffer): string {
 	return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -83,12 +88,15 @@ function participantsOf(body: string): Array<{ name: string; avatar: string | nu
 		.participants;
 }
 
-async function withServer(run: (port: number) => Promise<void>): Promise<void> {
+async function withServer(
+	run: (port: number) => Promise<void>,
+	revokedJtis: ReadonlySet<string> = new Set<string>(),
+): Promise<void> {
 	const registry = new RoomRegistry(pool);
 	const server: Server = createHealthServer((request, response) =>
-		handlePresenceRequest(registry, config, request, response),
+		handlePresenceRequest(registry, config, request, response, revokedJtis),
 	);
-	attachCollaborationServer(server, config, pool, registry);
+	attachCollaborationServer(server, config, pool, registry, revokedJtis);
 	await new Promise<void>((resolve) => server.listen(0, resolve));
 	const address = server.address();
 	if (!address || typeof address === 'string') throw new Error('expected a TCP address');
@@ -186,6 +194,34 @@ test('presence reports each connected peer with the identity its token was signe
 			bob.terminate();
 		}
 	});
+});
+
+test('a token withdrawn after it was issued is refused, though it still verifies', async () => {
+	const revokedJtis = new Set<string>();
+	await withServer(async (port) => {
+		const roomId = `presence-revoked-${randomUUID()}`;
+		const jti = randomUUID();
+		const collaborationToken = token({ roomId, role: 'write', jti });
+
+		const alice = await connect(port, roomId, collaborationToken);
+		try {
+			assert.equal((await getPresence(port, roomId, `?token=${collaborationToken}`)).status, 200);
+
+			// A signature cannot be un-signed, so withdrawal is state the relay
+			// holds (`testControl.ts`). From then on the token is refused exactly
+			// as an expired one is, which is what lets the editor drop it.
+			revokedJtis.add(jti);
+			const refused = await getPresence(port, roomId, `?token=${collaborationToken}`);
+			assert.equal(refused.status, 401);
+			assert.equal(refused.headers['access-control-allow-origin'], ALLOWED_ORIGIN);
+
+			// Only verification changes: a participant already in the room is not
+			// thrown out by a withdrawal.
+			assert.equal(alice.readyState, WebSocket.OPEN);
+		} finally {
+			alice.terminate();
+		}
+	}, revokedJtis);
 });
 
 test('a room nobody is connected to answers with an empty roster, not an error', async () => {

@@ -36,13 +36,16 @@ export function handlePresenceRequest(
 	config: RelayServerConfig,
 	request: IncomingMessage,
 	response: ServerResponse,
+	// Shared with the WebSocket endpoint (`server.ts`): a token withdrawn
+	// after it was issued must be refused here too, not only on a new join.
+	revokedJtis?: ReadonlySet<string>,
 ): boolean {
 	const url = new URL(request.url ?? '', 'http://relay.invalid');
 	const match = url.pathname.match(PRESENCE_PATH);
 	if (!match) return false;
 
 	const roomId = decodeURIComponent(match[1]);
-	void respond(registry, config, request, response, roomId, url.searchParams.get('token'));
+	void respond(registry, config, request, response, roomId, url.searchParams.get('token'), revokedJtis);
 	return true;
 }
 
@@ -53,6 +56,7 @@ async function respond(
 	response: ServerResponse,
 	roomId: string,
 	token: string | null,
+	revokedJtis?: ReadonlySet<string>,
 ): Promise<void> {
 	// §13 "Strict Origin validation": a page on any other origin must not be
 	// able to read this, so the allow-list is applied before anything else and
@@ -82,7 +86,7 @@ async function respond(
 
 	let userId: string;
 	try {
-		const claims = verifyCollaborationToken(token, config.sharedSecret);
+		const claims = verifyCollaborationToken(token, config.sharedSecret, undefined, revokedJtis);
 		if (claims.roomId !== roomId) {
 			refuse(403);
 			return;
