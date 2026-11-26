@@ -1,9 +1,18 @@
 version: 2
+# Dependabot writes "build(deps): Bump X from A to B" by default. Every entry
+# below names the prefix its directory already uses in history -- app:,
+# relay:, poc: -- so a dependabot commit reads like the rest of the log
+# instead of arriving in a third style. No "include: scope": it would append
+# "(deps)" after the prefix and produce app(deps):, which nothing here uses.
+# github-actions entries are repo-wide, so they take ci: rather than naming
+# one part. Dependabot still capitalises its own sentence after the prefix.
 updates:
   - package-ecosystem: composer
     directory: /app
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "app"
     # BetterOffice packages are JS-only (npm); this only covers the app's
     # PHP tooling (phpunit, coding standard, the nextcloud/ocp dev stub).
 
@@ -11,6 +20,8 @@ updates:
     directory: /app
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "app"
     ignore:
       # @nextcloud/vite-config 2.5.4 peers on vite ^7.3.6, so a Vite 8 or
       # @vitejs/plugin-react 6 PR cannot be installed, let alone built; both
@@ -26,11 +37,15 @@ updates:
     directory: /relay
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "relay"
 
   - package-ecosystem: npm
     directory: /poc
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "poc"
     # poc/ is frozen Phase 0 reference, not shipped — but a known-vulnerable
     # BetterOffice/relay dependency there is still worth knowing about
     # before it's ported into app/ or relay/ for real.
@@ -39,3 +54,5 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "ci"
