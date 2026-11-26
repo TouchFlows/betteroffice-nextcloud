@@ -11,6 +11,16 @@ updates:
     directory: /app
     schedule:
       interval: weekly
+    ignore:
+      # @nextcloud/vite-config 2.5.4 peers on vite ^7.3.6, so a Vite 8 or
+      # @vitejs/plugin-react 6 PR cannot be installed, let alone built; both
+      # majors were opened and closed for that reason. Ignore exactly those
+      # majors rather than every future major: once the config widens its
+      # peer range, delete the matching entry and the PR can come back.
+      - dependency-name: vite
+        versions: ["8.x"]
+      - dependency-name: "@vitejs/plugin-react"
+        versions: ["6.x"]
 
   - package-ecosystem: npm
     directory: /relay
