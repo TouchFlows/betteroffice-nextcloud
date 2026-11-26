@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import type { DocxEditorRef } from '@betteroffice/docx-react';
 import { EditorApp } from './EditorApp';
 import { PptxEditorApp, type PptxEditorAppProps } from './PptxEditorApp';
-import { XlsxEditorApp } from './XlsxEditorApp';
+import { XlsxEditorApp, type XlsxEditorAppProps } from './XlsxEditorApp';
 
 export interface EditorRouteProps {
 	fileId: number;
@@ -19,6 +19,8 @@ export interface EditorRouteProps {
 	onEditorRef?: (ref: RefObject<DocxEditorRef | null>) => void;
 	/** Same harness-only hook for the presentation editor's API. */
 	onPptxReady?: PptxEditorAppProps['onReady'];
+	/** And for the spreadsheet editor's API. */
+	onXlsxReady?: XlsxEditorAppProps['onReady'];
 }
 
 /**
@@ -35,9 +37,18 @@ export function EditorRoute({
 	format,
 	onEditorRef,
 	onPptxReady,
+	onXlsxReady,
 }: EditorRouteProps) {
 	if (format === 'xlsx') {
-		return <XlsxEditorApp fileId={fileId} fileName={fileName} readOnly={readOnly} />;
+		return (
+			<XlsxEditorApp
+				fileId={fileId}
+				fileName={fileName}
+				readOnly={readOnly}
+				relayUrl={relayUrl}
+				onReady={onXlsxReady}
+			/>
+		);
 	}
 	if (format === 'pptx') {
 		return (
