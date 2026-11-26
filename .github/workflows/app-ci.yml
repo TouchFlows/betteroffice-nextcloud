@@ -132,7 +132,7 @@ jobs:
         # for the run that failed, so a red repeat leaves the DOM, network and
         # console timeline here instead of just an assertion diff in the log.
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-traces
           # Relative to the workspace root: defaults.run.working-directory only
