@@ -21,7 +21,9 @@ export function SaveStatusLine({ status }: { status: SaveStatus }) {
 		return null;
 	}
 
-	const modifier = status === 'conflict' || status === 'error' ? ` betteroffice-save-status--${status}` : '';
+	// Every non-idle state gets its own modifier, so callers (and the e2e
+	// specs) can assert on `--saved`/`--conflict` instead of matching text.
+	const modifier = status === 'idle' ? '' : ` betteroffice-save-status--${status}`;
 
 	return (
 		<p className={`betteroffice-save-status${modifier}`} role="status">

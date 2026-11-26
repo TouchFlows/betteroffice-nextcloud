@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import type { RefObject } from 'react';
 import type { DocxEditorRef } from '@betteroffice/docx-react';
-import { EditorApp } from '../../../src/editor/EditorApp';
+import { EditorRoute } from '../../../src/editor/EditorRoute';
 import '../../../css/style.css';
 
 // @nextcloud/router's generateUrl needs this; everything else it reads
@@ -26,14 +26,18 @@ const fileId = Number(params.get('fileId') ?? '1');
 const fileName = params.get('fileName') ?? 'demo.docx';
 const readOnly = params.get('readOnly') === '1';
 const relayUrl = params.get('relayUrl') ?? '';
+// Mirrors the `data-format` attribute EditorController renders, so the
+// harness exercises the same dispatch the real page does.
+const format = params.get('format') ?? 'docx';
 
 const mount = document.getElementById('betteroffice-editor')!;
 createRoot(mount).render(
-	<EditorApp
+	<EditorRoute
 		fileId={fileId}
 		fileName={fileName}
 		readOnly={readOnly}
 		relayUrl={relayUrl}
+		format={format}
 		onEditorRef={exposeEditorRef}
 	/>,
 );
