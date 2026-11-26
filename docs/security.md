@@ -33,11 +33,17 @@ at the repo root for how to report a vulnerability.
 
 ## Known accepted gaps (Phase 0 finding, tracked here so they aren't lost)
 
-- `@nextcloud/vite-config`'s own transitive dev-dependency tree currently
-  carries several `npm audit` findings (elliptic, picomatch, minimatch — all
-  in build-only tooling like `vite-plugin-dts`/`vite-plugin-node-polyfills`,
-  never shipped to users). The available fix is a downgrade to an older
-  `@nextcloud/vite-config`, which is not obviously safer. Re-check on every
+- `@nextcloud/vite-config`'s own transitive dev-dependency tree still
+  carries `npm audit` findings, but the surface is now one chain and seven
+  low-severity entries: `@nextcloud/vite-config` →
+  `vite-plugin-node-polyfills` → `node-stdlib-browser` → `crypto-browserify`
+  → `browserify-sign`/`create-ecdh` → `elliptic`. All of it is build-only
+  tooling that is never shipped to users, and `npm audit --omit=dev` is
+  clean for both `app/` and `relay/`. npm reports no available fix, and
+  there is no longer a downgrade to trade for one: the older findings
+  (picomatch, minimatch) came in through `vite-plugin-dts`, which Vite 8's
+  `@nextcloud/vite-config` 3 dropped — the remaining `minimatch` in the lock
+  is the pinned override the bullet below describes. Re-check on every
   dependency bump; do not silently suppress the audit in CI.
 - `@nextcloud/files`' `webdav` dependency pulled in a vulnerable `minimatch`
   (GHSA-g3hv-75wg-m249, ReDoS) as a *production* dependency, not a dev-tooling
