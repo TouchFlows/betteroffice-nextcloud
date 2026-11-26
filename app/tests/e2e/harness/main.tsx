@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import type { RefObject } from 'react';
 import type { DocxEditorRef } from '@betteroffice/docx-react';
 import type { PptxAsyncEditorApi } from '@betteroffice/pptx-react';
+import type { XlsxAsyncEditorApi } from '@betteroffice/xlsx-react';
 import { EditorRoute } from '../../../src/editor/EditorRoute';
 import '../../../css/style.css';
 
@@ -16,6 +17,8 @@ declare global {
 			editorRef?: RefObject<DocxEditorRef | null>;
 			/** Presentation editor API, for deck text the canvas does not expose as DOM. */
 			pptxApi?: PptxAsyncEditorApi;
+			/** Spreadsheet editor API, for cell text the canvas does not expose as DOM. */
+			xlsxApi?: XlsxAsyncEditorApi;
 		};
 	}
 }
@@ -28,6 +31,10 @@ function exposeEditorRef(editorRef: RefObject<DocxEditorRef | null>): void {
 
 function exposePptxApi(api: PptxAsyncEditorApi): void {
 	window.__betteroffice = { ...window.__betteroffice, pptxApi: api };
+}
+
+function exposeXlsxApi(api: XlsxAsyncEditorApi): void {
+	window.__betteroffice = { ...window.__betteroffice, xlsxApi: api };
 }
 
 const params = new URLSearchParams(window.location.search);
@@ -49,5 +56,6 @@ createRoot(mount).render(
 		format={format}
 		onEditorRef={exposeEditorRef}
 		onPptxReady={exposePptxApi}
+		onXlsxReady={exposeXlsxApi}
 	/>,
 );
