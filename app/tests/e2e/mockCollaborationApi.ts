@@ -87,13 +87,19 @@ function base64Url(buffer: Buffer): string {
 	return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function issueToken(ttlSeconds: number, role: CollaborationRole, name: string, roomId: string): string {
+function issueToken(
+	ttlSeconds: number,
+	role: CollaborationRole,
+	name: string,
+	roomId: string,
+	fileId: number,
+): string {
 	const claims = {
 		iid: 'e2e-instance',
 		sub: name.toLowerCase(),
 		name,
 		avatar: `${TEST_RELAY_ORIGIN}${AVATAR_PATH}/${encodeURIComponent(name)}.png`,
-		fid: 1,
+		fid: fileId,
 		roomId,
 		format: 'docx',
 		role,
@@ -157,14 +163,18 @@ export function mockCollaborationApi(): Plugin {
 
 			server.middlewares.use(SESSION_PATH, (request, response) => {
 				const path = (request.url ?? '').split('?')[0];
-				const match = path.match(/^\/1(\/seed)?$/);
+				// Any file id: DOCX, XLSX and PPTX fixtures are 1, 2 and 3, and the
+				// endpoint is format- and file-agnostic on the real server too.
+				const match = path.match(/^\/(\d+)(\/seed)?$/);
 				if (!match) {
 					response.statusCode = 404;
 					response.end();
 					return;
 				}
 
-				if (match[1]) {
+				// Group 2 is the `/seed` suffix; group 1 is the file id, so it
+				// cannot decide which endpoint this is.
+				if (match[2]) {
 					if (request.method !== 'PUT') {
 						response.statusCode = 405;
 						response.end();
@@ -192,10 +202,17 @@ export function mockCollaborationApi(): Plugin {
 				}
 				const room = requestedRoom(request);
 				const role = requestedRole(request);
+				const fileId = Number(match[1]);
 				const seed = seeds.get(room);
 				sendJson(response, 200, {
 					roomId: room,
-					token: issueToken(tokenTtls.get(room) ?? DEFAULT_TOKEN_TTL_SECONDS, role, requestedName(request), room),
+					token: issueToken(
+						tokenTtls.get(room) ?? DEFAULT_TOKEN_TTL_SECONDS,
+						role,
+						requestedName(request),
+						room,
+						fileId,
+					),
 					role,
 					seed: seed === undefined ? null : seed.toString('base64'),
 				});

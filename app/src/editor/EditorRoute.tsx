@@ -40,7 +40,15 @@ export function EditorRoute({
 		return <XlsxEditorApp fileId={fileId} fileName={fileName} readOnly={readOnly} />;
 	}
 	if (format === 'pptx') {
-		return <PptxEditorApp fileId={fileId} fileName={fileName} readOnly={readOnly} onReady={onPptxReady} />;
+		return (
+			<PptxEditorApp
+				fileId={fileId}
+				fileName={fileName}
+				readOnly={readOnly}
+				relayUrl={relayUrl}
+				onReady={onPptxReady}
+			/>
+		);
 	}
 	return (
 		<EditorApp
