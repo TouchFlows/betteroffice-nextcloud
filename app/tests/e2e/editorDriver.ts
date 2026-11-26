@@ -92,10 +92,19 @@ export async function appendText(page: Page, text: string): Promise<void> {
 	expect(result.ok, `applyEdits failed: ${JSON.stringify(result)}`).toBe(true);
 }
 
-/** Opens the editor and waits until its collaboration session is live and synced. */
-export async function openEditor(page: Page): Promise<void> {
-	await page.goto(EDITOR_PATH);
-	await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible({ timeout: 30_000 });
+/**
+ * Opens the editor and waits until its collaboration session is live and
+ * synced. `readOnly` mirrors what the page passes for a file the viewer may
+ * not update, so the same app path is exercised for viewers and writers.
+ */
+export async function openEditor(page: Page, { readOnly = false } = {}): Promise<void> {
+	await page.goto(`${EDITOR_PATH}${readOnly ? '&readOnly=1' : ''}`);
+	// A read-only viewer gets no menu bar at all, so the menu is the writer's
+	// readiness signal only; a viewer's is the collaboration status plus a
+	// document it can read, both waited for below.
+	if (!readOnly) {
+		await expect(page.getByRole('menuitem', { name: 'File' })).toBeVisible({ timeout: 30_000 });
+	}
 	await expect(page.locator('[data-collaboration-status="connected"]')).toBeVisible({ timeout: 30_000 });
 	await waitForEditor(page);
 }
