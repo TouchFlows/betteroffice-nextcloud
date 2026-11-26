@@ -213,15 +213,21 @@ export function XlsxEditorApp({ fileId, fileName, readOnly, relayUrl = '', onRea
 			const replica = api.collaboration;
 			if (!replica || !session || relayUrl === '') return;
 
-			const transport = new WsCollaborationTransport(async () => {
-				const initial = initialTokenRef.current;
-				if (initial) {
-					initialTokenRef.current = null;
-					return relaySocketUrl(relayUrl, initial.roomId, initial.token);
-				}
-				const fresh = await requestCollaborationSession(fileId);
-				return relaySocketUrl(relayUrl, fresh.roomId, fresh.token);
-			});
+			const transport = new WsCollaborationTransport(
+				async () => {
+					const initial = initialTokenRef.current;
+					if (initial) {
+						initialTokenRef.current = null;
+						return relaySocketUrl(relayUrl, initial.roomId, initial.token);
+					}
+					const fresh = await requestCollaborationSession(fileId);
+					return relaySocketUrl(relayUrl, fresh.roomId, fresh.token);
+				},
+				// The role comes from the server, not from `readOnly`: a viewer's
+				// provider publishes a whole-state update when it joins, which the
+				// relay refuses from a read token (see `WsTransportOptions`).
+				{ publishUpdates: session.role === 'write' },
+			);
 			// The spreadsheet provider takes a `CollaborationReplica`; the
 			// editor's replica is the async kind, so it is adapted first.
 			const provider = new CollaborationProvider(createAsyncCollaborationReplica(replica), transport, {

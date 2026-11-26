@@ -40,6 +40,45 @@ const BACKPRESSURE_THRESHOLD_BYTES = 1_000_000;
 const DRAIN_POLL_MS = 20;
 
 /**
+ * A Yjs sync frame starts with the message type (0 = sync), then its sub-type
+ * (2 = update). These mirror `relay/src/wsServer.ts`, which refuses an update
+ * from a read-only token by closing the socket with 1008.
+ */
+const SYNC_MESSAGE_TYPE = 0;
+const SYNC_SUBTYPE_UPDATE = 2;
+
+/** True for a frame carrying this client's own document state. */
+function isDocumentUpdate(frame: Uint8Array): boolean {
+	return frame.length >= 2 && frame[0] === SYNC_MESSAGE_TYPE && frame[1] === SYNC_SUBTYPE_UPDATE;
+}
+
+export interface WsTransportOptions {
+	/**
+	 * Whether this session may publish document state at all: false for a
+	 * session the server signed a read role into.
+	 *
+	 * The relay's rule is that a read-only token submits no editing update
+	 * (`relay/src/wsServer.ts`: it closes the socket with 1008), and it already
+	 * drops the SyncStep2 a read client answers the room's handshake with. But
+	 * the spreadsheet provider also sends a whole-state *update* when it
+	 * connects with an empty state vector, so a read-only viewer's socket was
+	 * closed on open and reopened about once a second: it never stayed in the
+	 * room long enough to be listed in presence, and its view only caught up
+	 * between reconnects.
+	 *
+	 * Dropping that frame here keeps the relay's rule exactly as it is and the
+	 * connection stable -- which is what the relay's own comment asks for ("a
+	 * read-only participant still receives the document"). The editor behind
+	 * such a session is read-only too, so there is no local edit to lose.
+	 *
+	 * Defaults to true: DOCX's provider sends no such frame from a viewer, and
+	 * the relay's refusal of an *edit* from a writable editor must stay
+	 * observable (`collaboration-roles.spec.ts` asserts the 1008).
+	 */
+	publishUpdates?: boolean;
+}
+
+/**
  * Called on every connection attempt, so it must return a *current* WebSocket
  * URL (fresh token), not a cached one.
  */
@@ -54,7 +93,14 @@ export class WsCollaborationTransport implements CollaborationTransport {
 	/** Bumped by disconnect(), so an attempt that resolves afterwards does not open. */
 	private generation = 0;
 
-	constructor(private readonly resolveUrl: CollaborationUrlResolver) {}
+	private readonly publishUpdates: boolean;
+
+	constructor(
+		private readonly resolveUrl: CollaborationUrlResolver,
+		options: WsTransportOptions = {},
+	) {
+		this.publishUpdates = options.publishUpdates ?? true;
+	}
 
 	async connect(): Promise<void> {
 		// The provider reconnects by calling connect() again after a close;
@@ -105,6 +151,11 @@ export class WsCollaborationTransport implements CollaborationTransport {
 	}
 
 	send(data: Uint8Array): boolean {
+		// Accepted, not sent: the relay would refuse this frame anyway, and
+		// reporting backpressure instead would make the provider queue it and
+		// retry forever.
+		if (!this.publishUpdates && isDocumentUpdate(data)) return true;
+
 		const socket = this.socket;
 		if (!socket || socket.readyState !== WebSocket.OPEN) return false;
 		if (socket.bufferedAmount > BACKPRESSURE_THRESHOLD_BYTES) {
