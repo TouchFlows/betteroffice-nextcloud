@@ -87,13 +87,13 @@ refuses the write (§9.3) rather than overwriting, though the recoverable
 conflict copy §9.5 describes isn't built yet (Phase 5); today a conflict
 just refuses and tells the user, with no automatic recovery path.
 
-Still open: XLSX/PPTX open and save single-user but have no collaboration
-wiring yet (Phase 4), so their saves are uncoordinated by construction —
-nothing fences two editors of the same spreadsheet; and there is no
-authentication/authorisation boundary between
-the app and the relay yet (that's the whole "Required, not yet implemented"
-list above) — Phase 2's save path is single-editor only, with no
-collaboration or relay involved at all.
+Still open: saving is still the single-editor path Phase 2 built. Every
+format now joins its file's room, so concurrent editors converge on the
+content, but two of them saving the same file race for it and only the ETag
+check keeps the later write from clobbering silently — the §9.2
+leader/fencing step is not built. Nor is there an
+authentication/authorisation boundary between the app and the relay yet
+(that's the whole "Required, not yet implemented" list above).
 
 ## The relay's trust boundary
 

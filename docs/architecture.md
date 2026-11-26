@@ -45,10 +45,10 @@ row and issues a token; `PUT .../collab/session/{fileId}/seed` is the
 atomic seed create-if-absent, §8.2), and `SharedSecretService` (the
 auto-generated secret shared with the relay, §8.5), `Settings\Admin` and
 `SettingsController` (Settings → Administration → BetterOffice: relay URL
-and secret, §4.A/§11), and the frontend's own collaboration wiring in
-`EditorApp`. Still ahead: save coordination and conflict recovery (§9) in
-Phase 5, and XLSX/PPTX collaboration in Phase 4 — both of those editors
-already open and save single-user.
+and secret, §4.A/§11), and the frontend's own collaboration wiring, now in
+all three editors. Still ahead: save coordination and conflict recovery (§9)
+in Phase 5 — every format joins its room, but nothing yet decides which of
+two editors' saves reaches the file first.
 
 ## `app/` frontend — the BetterOffice editors
 
@@ -61,10 +61,12 @@ prop/callback actually hands you the live collaboration replica, and which
 `CollaborationProvider` constructor accepts it directly vs. needs wrapping).
 All three editors are wired: the server resolves the file's format from its
 mime type, the template hands it to the bundle, and `src/editor/main.tsx`
-mounts `DocxEditor`/`XlsxEditor`/`PptxEditor` accordingly. Only DOCX passes a
-`collaboration` prop so far; the other two read and write through the same
+mounts `DocxEditor`/`XlsxEditor`/`PptxEditor` accordingly. All three pass a
+`collaboration` prop and join the file's room — DOCX and PPTX through
+`onReplica`, XLSX from `onReady(api).collaboration` because its async editor
+never calls `onReplica`. All three read and write through the same
 `DocumentController` endpoints (load, then `onSave` back with the loaded
-ETag), which is what makes them usable before their collaboration is wired.
+ETag), which is what keeps them usable when no relay is configured.
 
 ## `relay/` — the collaboration relay
 
