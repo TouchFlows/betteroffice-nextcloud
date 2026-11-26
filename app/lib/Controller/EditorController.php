@@ -69,6 +69,10 @@ class EditorController extends Controller {
 			'fileName' => $file->getName(),
 			'readOnly' => !$file->isUpdateable(),
 			'relayUrl' => $relayUrl,
+			// The file already passed FileAccessService, so this cannot throw;
+			// the frontend uses it to mount the editor for the actual format
+			// instead of assuming DOCX.
+			'format' => FileAccessService::formatForMimeType($file->getMimeType()),
 		]);
 		// Without this the page loads and then silently edits alone: the
 		// default policy refuses the WebAssembly engine and the relay.

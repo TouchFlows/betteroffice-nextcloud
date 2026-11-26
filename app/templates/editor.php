@@ -10,4 +10,5 @@
 	data-file-name="<?php p($_['fileName']); ?>"
 	data-read-only="<?php p($_['readOnly'] ? '1' : '0'); ?>"
 	data-relay-url="<?php p($_['relayUrl']); ?>"
+	data-format="<?php p($_['format']); ?>"
 ></div>

@@ -91,8 +91,17 @@ export default createAppConfig(
 				// `new URL(..., import.meta.url)` relative to its own file;
 				// Vite's dependency pre-bundler rewrites that import.meta.url to
 				// its .vite/deps cache dir, breaking the relative lookup (see
-				// poc/RECONNAISSANCE.md §6).
-				exclude: ['@betteroffice/docx', '@betteroffice/docx-react'],
+				// poc/RECONNAISSANCE.md §6). Every BetterOffice package carries
+				// its own wasm engine, so all six need excluding, not just the
+				// DOCX pair that predates the other two editors.
+				exclude: [
+					'@betteroffice/docx',
+					'@betteroffice/docx-react',
+					'@betteroffice/xlsx',
+					'@betteroffice/xlsx-react',
+					'@betteroffice/pptx',
+					'@betteroffice/pptx-react',
+				],
 			},
 		}),
 		inlineCSS: true,
