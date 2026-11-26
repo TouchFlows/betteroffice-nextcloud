@@ -45,11 +45,19 @@ at the repo root for how to report a vulnerability.
   `@nextcloud/vite-config` 3 dropped — the remaining `minimatch` in the lock
   is the pinned override the bullet below describes. Re-check on every
   dependency bump; do not silently suppress the audit in CI.
-- `@nextcloud/files`' `webdav` dependency pulled in a vulnerable `minimatch`
+- `@nextcloud/files`' `webdav` dependency pulls in a vulnerable `minimatch`
   (GHSA-g3hv-75wg-m249, ReDoS) as a *production* dependency, not a dev-tooling
-  one — that one is pinned to a fixed version via `app/package.json`'s
-  `overrides`, not left open. Re-check this override is still needed (and
-  still the right version) whenever `@nextcloud/files` is bumped.
+  one. `webdav` asks for `^9.0.9`, and 9.0.9 — the newest 9.x — is still
+  inside the advisory's affected range: the fix landed only in 11.0.1, so no
+  9.x release clears it. That chain is now the *only* consumer of `minimatch`
+  in the lockfile; the `vite-plugin-dts` ones went with Vite 8. It is pinned
+  to 11.0.9 via `app/package.json`'s `overrides`, not left open, and that pin
+  is what keeps `npm audit --omit=dev` clean. The two-major jump is safe
+  because `webdav` makes exactly one call, `minimatch(path, glob,
+  { matchBase: true })`, and 11.x still exports `minimatch` and still honours
+  `matchBase`. No bump can retire the pin either: `@nextcloud/files` 4.1.1
+  and `webdav` 5.11.0 are the newest published versions of both, and `webdav`
+  still declares `^9.0.9`. Re-check whenever either one is bumped.
 
 ## File access boundary
 
