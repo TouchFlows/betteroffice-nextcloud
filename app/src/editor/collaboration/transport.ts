@@ -1,9 +1,31 @@
-import type { CollaborationTransport, CollaborationTransportEvent } from '@betteroffice/docx/collaboration';
+/**
+ * BetterOffice's `CollaborationTransport` contract, declared here instead of
+ * imported from one format's package. The contract is structurally identical
+ * in `@betteroffice/docx`, `xlsx` and `pptx` (poc/RECONNAISSANCE.md §3), and
+ * all three providers accept any object that satisfies it -- so the transport
+ * belongs to none of them. `transportContract.ts` pins that: tsc fails naming
+ * the format whose contract this document no longer satisfies.
+ */
+export type CollaborationTransportEvent =
+	| { type: 'open' }
+	| { type: 'message'; data: Uint8Array }
+	| { type: 'close'; reason?: string }
+	| { type: 'error'; error: unknown }
+	| { type: 'drain' };
+
+export interface CollaborationTransport {
+	/** Starts one connection attempt; transports may also reopen while still subscribed. */
+	connect(): void | Promise<void>;
+	disconnect(): void | Promise<void>;
+	/** Returns true only when the owned frame was accepted; false requires a later drain event. */
+	send(data: Uint8Array): boolean;
+	onEvent(listener: (event: CollaborationTransportEvent) => void): () => void;
+}
 
 /**
- * Implements BetterOffice's `CollaborationTransport` contract over a plain
- * browser `WebSocket`: connect/disconnect, binary send with backpressure, and
- * an event stream of open/message/close/error/drain.
+ * Implements that contract over a plain browser `WebSocket`:
+ * connect/disconnect, binary send with backpressure, and an event stream of
+ * open/message/close/error/drain.
  *
  * Ported from the Phase 0 proof (`poc/shared/transport.ts`), which validated
  * this exact shape against the real editors -- with one deliberate change:
