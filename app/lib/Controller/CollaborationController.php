@@ -57,9 +57,10 @@ class CollaborationController extends Controller {
 			return new JSONResponse(['message' => 'This file is too large to open'], Http::STATUS_REQUEST_ENTITY_TOO_LARGE);
 		}
 
-		// DOCX only -- the same Phase 3/4 constraint FileAccessService's
-		// supported-mime-type list already enforces.
-		$session = $this->rooms->resolveSession($fileId, 'docx', $file->getEtag());
+		// The format is part of the room's identity, so it comes from the
+		// file itself rather than from the fact that DOCX was the only
+		// format wired when this endpoint was written.
+		$session = $this->rooms->resolveSession($fileId, FileAccessService::formatForMimeType($file->getMimeType()), $file->getEtag());
 		$role = $file->isUpdateable() ? 'write' : 'read';
 
 		return new JSONResponse([
@@ -113,7 +114,7 @@ class CollaborationController extends Controller {
 			return new JSONResponse(['message' => 'A non-empty seed body is required'], Http::STATUS_BAD_REQUEST);
 		}
 
-		$session = $this->rooms->resolveSession($fileId, 'docx', $file->getEtag());
+		$session = $this->rooms->resolveSession($fileId, FileAccessService::formatForMimeType($file->getMimeType()), $file->getEtag());
 		$seed = $this->rooms->resolveSeed($session, $offeredSeed);
 
 		return new JSONResponse(['seed' => base64_encode($seed)]);

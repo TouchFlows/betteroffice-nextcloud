@@ -17,9 +17,18 @@ use OCP\Files\IRootFolder;
  * checks are always current (§6.3 "recheck permissions before every save").
  */
 class FileAccessService {
-	/** DOCX only for now; XLSX/PPTX join once their editors are wired (Phase 4). */
-	public const SUPPORTED_MIME_TYPES = [
-		'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+	/**
+	 * Every format BetterOffice opens, keyed by mime type and valued with the
+	 * format identifier both the room and the client use. The format is part
+	 * of the room's identity (`RoomService::computeRoomId` hashes
+	 * instance|file|format), so it is read off the file's own mime type
+	 * rather than assumed per request: a file must never land in a room
+	 * created for a different format.
+	 */
+	public const SUPPORTED_FORMATS = [
+		'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+		'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+		'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
 	];
 
 	/**
@@ -31,6 +40,19 @@ class FileAccessService {
 	public function __construct(
 		private IRootFolder $rootFolder,
 	) {
+	}
+
+	/**
+	 * The format identifier for a mime type, or an exception for a file type
+	 * this app does not open. Callers resolve the file through this service
+	 * first, so an unsupported mime type normally fails earlier -- this is the
+	 * single source of truth either way, not a second list to keep in sync.
+	 *
+	 * @throws UnsupportedFileTypeException
+	 */
+	public static function formatForMimeType(string $mimeType): string {
+		return self::SUPPORTED_FORMATS[$mimeType]
+			?? throw new UnsupportedFileTypeException("Unsupported mime type {$mimeType}");
 	}
 
 	/** @throws FileNotFoundException|FileAccessDeniedException|UnsupportedFileTypeException|FileTooLargeException */
@@ -59,7 +81,7 @@ class FileAccessService {
 		if (!$node instanceof File) {
 			throw new FileNotFoundException("File {$fileId} not found for {$userId}");
 		}
-		if (!in_array($node->getMimeType(), self::SUPPORTED_MIME_TYPES, true)) {
+		if (!isset(self::SUPPORTED_FORMATS[$node->getMimeType()])) {
 			throw new UnsupportedFileTypeException("File {$fileId} has unsupported mime type {$node->getMimeType()}");
 		}
 		if ($node->getSize() > self::MAX_FILE_SIZE_BYTES) {

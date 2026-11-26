@@ -87,8 +87,10 @@ refuses the write (§9.3) rather than overwriting, though the recoverable
 conflict copy §9.5 describes isn't built yet (Phase 5); today a conflict
 just refuses and tells the user, with no automatic recovery path.
 
-Still open: XLSX/PPTX aren't in `FileAccessService::SUPPORTED_MIME_TYPES`
-yet (Phase 4), and there is no authentication/authorisation boundary between
+Still open: XLSX/PPTX are accepted by `FileAccessService::SUPPORTED_FORMATS`
+as of Phase 4's first slice, but their editors and file actions are not wired
+yet, so only DOCX is reachable from the Files app; and there is no
+authentication/authorisation boundary between
 the app and the relay yet (that's the whole "Required, not yet implemented"
 list above) — Phase 2's save path is single-editor only, with no
 collaboration or relay involved at all.
