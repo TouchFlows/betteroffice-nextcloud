@@ -50,3 +50,14 @@ jobs:
         # option "worker.format"` while the typecheck stayed green. Building
         # here turns that class of regression into a failed pull request.
         run: npm run build:app
+
+      - name: Dependency audit (shipped bundle only — fails the build)
+        # Same pair as app CI and relay CI: docs/security.md claims production
+        # dependencies are clean in every tree, so poc/ has to be asserted by
+        # a step that fails rather than assumed from the other two workflows.
+        # poc-ci.yml is path-filtered to poc/**, so only this file can do it.
+        run: npm audit --omit=dev
+
+      - name: Dependency audit (dev tooling — warns only)
+        if: always()
+        run: npm audit || echo "::warning::npm audit found issues outside production deps; see docs/security.md"
