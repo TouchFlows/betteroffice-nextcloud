@@ -73,3 +73,34 @@ test('pptx: the presentation editor opens a real deck and saves it through the d
 	// A serialised deck, not a truncated write of the fixture header.
 	expect(after.bytes).toBeGreaterThan(5_000);
 });
+
+/** The ETag refusal: `--conflict`, not `--error`, and no overwrite. */
+test('pptx: a stale ETag surfaces the conflict message instead of overwriting', async ({ page, request, room }) => {
+	await page.goto('/?fileId=3&fileName=betteroffice-demo.pptx&format=pptx');
+	const editor = page.getByRole('application', { name: 'Presentation slide editor' });
+	await expect(editor).toBeVisible({ timeout: 30_000 });
+
+	await request.post(`/__test__/force-conflict?room=${room}&fileId=3`);
+	await page.getByRole('group', { name: 'File' }).getByRole('button', { name: 'Save' }).click();
+
+	await expect(page.locator('.betteroffice-save-status--conflict')).toBeVisible({ timeout: 20_000 });
+	await expect(page.locator('.betteroffice-save-status--saved')).toHaveCount(0);
+
+	const state = (await (await request.get(`/__test__/document-state?room=${room}&fileId=3`)).json()) as { saved: boolean };
+	expect(state.saved).toBe(false);
+});
+
+/** `readOnly` must reach the editor, which then offers no save at all. */
+test('pptx: a read-only editor offers no save and never writes', async ({ page, request, room }) => {
+	await page.goto('/?fileId=3&fileName=betteroffice-demo.pptx&format=pptx&readOnly=1');
+	await expect(page.getByRole('application', { name: 'Presentation slide editor' })).toBeVisible({ timeout: 30_000 });
+
+	await expect(page.getByRole('group', { name: 'File' }).getByRole('button', { name: 'Save' })).toHaveCount(0);
+
+	await page.keyboard.press('ControlOrMeta+s');
+	await page.waitForTimeout(1_500);
+	await expect(page.locator('.betteroffice-save-status--saved')).toHaveCount(0);
+
+	const state = (await (await request.get(`/__test__/document-state?room=${room}&fileId=3`)).json()) as { saved: boolean };
+	expect(state.saved).toBe(false);
+});
