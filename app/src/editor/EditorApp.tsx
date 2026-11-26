@@ -16,7 +16,7 @@ import {
 	resolveInitialUpdate,
 	type CollaborationSession,
 } from './collaboration/session';
-import { fetchPresence, PresenceAuthError, type PresenceParticipant } from './collaboration/presence';
+import { usePresenceRoster } from './collaboration/usePresenceRoster';
 
 export interface EditorAppProps {
 	fileId: number;
@@ -43,23 +43,6 @@ const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 15_000];
 
 /** How often the presence roster is re-read while connected (§8.6). */
 const PRESENCE_REFRESH_MS = 5_000;
-/**
- * A collaboration token stays valid for five minutes
- * (`RoomService::TOKEN_TTL_SECONDS`). Presence reuses the one the session
- * handshake already resolved until it is close to expiry, so an open editor
- * does not ask for a new session every few seconds.
- */
-const PRESENCE_TOKEN_REUSE_MS = 4 * 60_000;
-
-function sameParticipants(a: PresenceParticipant[], b: PresenceParticipant[]): boolean {
-	return a.length === b.length
-		&& a.every((participant, index) =>
-			participant.name === b[index].name
-			&& participant.avatar === b[index].avatar
-			&& participant.role === b[index].role
-			&& participant.self === b[index].self);
-}
-
 function documentUrl(fileId: number): string {
 	return generateUrl('/apps/betteroffice/document/{fileId}', { fileId });
 }
@@ -78,12 +61,6 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 	 * long after the token's five-minute lifetime.
 	 */
 	const initialTokenRef = useRef<{ roomId: string; token: string } | null>(null);
-	/**
-	 * The token the presence roster is read with: the same one the seed
-	 * handshake resolved (a token is reusable; only the transport consumes its
-	 * copy once), refreshed only as it nears expiry.
-	 */
-	const presenceTokenRef = useRef<{ roomId: string; token: string; at: number } | null>(null);
 	const [documentBuffer, setDocumentBuffer] = useState<ArrayBuffer>();
 	const [etag, setEtag] = useState<string>();
 	const [loadError, setLoadError] = useState<string>();
@@ -93,7 +70,6 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 	const [collaboration, setCollaboration] = useState<CollaborationState>(
 		relayUrl === '' ? { phase: 'disabled' } : { phase: 'preparing' },
 	);
-	const [participants, setParticipants] = useState<PresenceParticipant[]>([]);
 
 	// One identity per mount: the seed this client offers (if it wins the
 	// create-if-absent race) and the replica it then opens must be the same
@@ -115,7 +91,6 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 		setInitialUpdate(undefined);
 		setSession(undefined);
 		initialTokenRef.current = null;
-		presenceTokenRef.current = null;
 		axios
 			.get<ArrayBuffer>(documentUrl(fileId), { responseType: 'arraybuffer' })
 			.then((response) => {
@@ -153,7 +128,6 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 				if (cancelled) return;
 				setSession(resolved);
 				initialTokenRef.current = { roomId: resolved.roomId, token: resolved.token };
-				presenceTokenRef.current = { roomId: resolved.roomId, token: resolved.token, at: Date.now() };
 				setInitialUpdate(seed);
 				setCollaboration({ phase: 'live', status: 'connecting', synced: false, peers: 0 });
 			} catch (error) {
@@ -175,57 +149,15 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 	// read-only/editing role the server signed into their token. A separate
 	// read from the awareness channel (which carries cursors), because only the
 	// server can vouch for an identity -- the awareness payload is whatever each
-	// browser wrote about itself.
-	useEffect(() => {
-		if (collaboration.phase !== 'live' || relayUrl === '') {
-			setParticipants([]);
-			return;
-		}
-
-		let cancelled = false;
-		const loadRoster = async (): Promise<PresenceParticipant[]> => {
-			let token = presenceTokenRef.current;
-			if (token === null || Date.now() - token.at >= PRESENCE_TOKEN_REUSE_MS) {
-				const fresh = await requestCollaborationSession(fileId);
-				token = { roomId: fresh.roomId, token: fresh.token, at: Date.now() };
-				presenceTokenRef.current = token;
-			}
-			return fetchPresence(relayUrl, token.roomId, token.token);
-		};
-		const refresh = async () => {
-			try {
-				let roster: PresenceParticipant[];
-				try {
-					roster = await loadRoster();
-				} catch (error) {
-					if (!(error instanceof PresenceAuthError)) throw error;
-					// 401/403: this token is dead for good -- expired, or signed for
-					// a room the relay no longer serves. Retrying it until the reuse
-					// window ran out would leave the roster empty for minutes, so
-					// forget it and resolve a new session straight away.
-					presenceTokenRef.current = null;
-					roster = await loadRoster();
-				}
-				// Only a changed roster is worth a re-render: the editor below is
-				// a heavy component and polling must not re-render it every few
-				// seconds for nothing.
-				if (!cancelled) {
-					setParticipants((current) => (sameParticipants(current, roster) ? current : roster));
-				}
-			} catch {
-				// Presence is informational: a relay that cannot answer it must not
-				// affect editing, and a stale roster is worse than none.
-				if (!cancelled) setParticipants([]);
-			}
-		};
-
-		void refresh();
-		const timer = setInterval(() => void refresh(), PRESENCE_REFRESH_MS);
-		return () => {
-			cancelled = true;
-			clearInterval(timer);
-		};
-	}, [collaboration.phase, fileId, relayUrl]);
+	// browser wrote about itself. DOCX polls; the presentation editor is told by
+	// its provider instead, which is the only difference between them.
+	const { participants } = usePresenceRoster({
+		fileId,
+		relayUrl,
+		session,
+		active: collaboration.phase === 'live',
+		pollMs: PRESENCE_REFRESH_MS,
+	});
 
 	const clearReconnect = useCallback(() => {
 		if (reconnectTimer.current !== null) {

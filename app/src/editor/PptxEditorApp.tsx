@@ -17,7 +17,7 @@ import {
 	type CollaborationSession,
 } from './collaboration/session';
 import { WsCollaborationTransport } from './collaboration/transport';
-import { fetchPresence, PresenceAuthError, type PresenceParticipant } from './collaboration/presence';
+import { usePresenceRoster } from './collaboration/usePresenceRoster';
 
 /**
  * Presentation editor (Phase 4). Saves the same way the spreadsheet editor
@@ -58,13 +58,6 @@ export interface PptxEditorAppProps extends FormatEditorProps {
  */
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 15_000];
 /**
- * A collaboration token stays valid for five minutes
- * (`RoomService::TOKEN_TTL_SECONDS`). The roster reuses the one the session
- * handshake already resolved until it nears expiry, so an open editor does not
- * ask for a new session on every presence change.
- */
-const PRESENCE_TOKEN_REUSE_MS = 4 * 60_000;
-/**
  * `onPresence` fires for cursor movement as well as joins and leaves, so
  * roster reads are debounced to at most one a second.
  */
@@ -79,7 +72,6 @@ export function PptxEditorApp({ fileId, fileName, readOnly, relayUrl = '', onRea
 	const [collaboration, setCollaboration] = useState<CollaborationState>(
 		relayUrl === '' ? { phase: 'disabled' } : { phase: 'preparing' },
 	);
-	const [participants, setParticipants] = useState<PresenceParticipant[]>([]);
 	const etag = useRef('');
 	const providerRef = useRef<CollaborationProvider | null>(null);
 	const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,12 +83,6 @@ export function PptxEditorApp({ fileId, fileName, readOnly, relayUrl = '', onRea
 	 * come long after the token's five-minute life, so it asks again.
 	 */
 	const initialTokenRef = useRef<{ roomId: string; token: string } | null>(null);
-	/**
-	 * The token roster reads are made with: the one the handshake resolved,
-	 * refreshed only as it nears expiry (or when the relay refuses it).
-	 */
-	const presenceTokenRef = useRef<{ roomId: string; token: string; at: number } | null>(null);
-	const rosterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// One identity per mount: the client id that offered the seed must be the
 	// one the replica opens with, or one browser would carry two histories.
@@ -147,7 +133,6 @@ export function PptxEditorApp({ fileId, fileName, readOnly, relayUrl = '', onRea
 				if (cancelled) return;
 				setSession(resolved);
 				initialTokenRef.current = { roomId: resolved.roomId, token: resolved.token };
-				presenceTokenRef.current = { roomId: resolved.roomId, token: resolved.token, at: Date.now() };
 				setInitialUpdate(seed);
 				setCollaboration({ phase: 'live', status: 'connecting', synced: false, peers: 0 });
 			} catch (error) {
@@ -156,7 +141,6 @@ export function PptxEditorApp({ fileId, fileName, readOnly, relayUrl = '', onRea
 				// is down or not configured must not take the deck away.
 				console.warn('[betteroffice] collaboration unavailable, editing without it', error);
 				setCollaboration({ phase: 'failed' });
-				setParticipants([]);
 			}
 		})();
 
@@ -186,62 +170,23 @@ export function PptxEditorApp({ fileId, fileName, readOnly, relayUrl = '', onRea
 	useEffect(
 		() => () => {
 			clearReconnect();
-			if (rosterTimer.current !== null) {
-				clearTimeout(rosterTimer.current);
-				rosterTimer.current = null;
-			}
 			providerRef.current?.destroy();
 			providerRef.current = null;
 		},
 		[clearReconnect],
 	);
 
-	/**
-	 * Re-reads the roster from the relay (§8.6). Identity comes from the token
-	 * the server signed -- display name, avatar and read-only/editing role --
-	 * never from the awareness payload, which each browser writes about itself.
-	 * A token the relay refuses cannot be retried, so it is dropped and a new
-	 * session resolved straight away.
-	 */
-	const refreshRoster = useCallback(async () => {
-		if (relayUrl === '') return;
-		const load = async (): Promise<PresenceParticipant[]> => {
-			let token = presenceTokenRef.current;
-			if (token === null || Date.now() - token.at >= PRESENCE_TOKEN_REUSE_MS) {
-				const fresh = await requestCollaborationSession(fileId);
-				token = { roomId: fresh.roomId, token: fresh.token, at: Date.now() };
-				presenceTokenRef.current = token;
-			}
-			return fetchPresence(relayUrl, token.roomId, token.token);
-		};
-
-		try {
-			let roster: PresenceParticipant[];
-			try {
-				roster = await load();
-			} catch (error) {
-				if (!(error instanceof PresenceAuthError)) throw error;
-				presenceTokenRef.current = null;
-				roster = await load();
-			}
-			setParticipants(roster);
-		} catch {
-			// Presence is informational: a relay that cannot answer it must not
-			// affect editing, and a stale roster is worse than none.
-			setParticipants([]);
-		}
-	}, [fileId, relayUrl]);
-
-	const scheduleRosterRefresh = useCallback(
-		(delayMs: number) => {
-			if (rosterTimer.current !== null) return;
-			rosterTimer.current = setTimeout(() => {
-				rosterTimer.current = null;
-				void refreshRoster();
-			}, delayMs);
-		},
-		[refreshRoster],
-	);
+	// §8.6 presence: awareness tells us *when* the room changed (see
+	// `onPresence` below) and how many are in it; the identities shown come
+	// from the relay's `/presence` endpoint, where they are the ones signed
+	// into each token. The plumbing lives in one hook so the spreadsheet editor
+	// does not become a third copy.
+	const { participants, refresh: refreshRoster } = usePresenceRoster({
+		fileId,
+		relayUrl,
+		session,
+		active: collaboration.phase === 'live',
+	});
 
 	const handleReplica = useCallback(
 		(replica: AsyncCollaborationReplica | null) => {
@@ -267,7 +212,7 @@ export function PptxEditorApp({ fileId, fileName, readOnly, relayUrl = '', onRea
 					reconnectAttempts.current = 0;
 					clearReconnect();
 					// The room's participants are known now; read the roster at once.
-					scheduleRosterRefresh(0);
+					refreshRoster(0);
 				} else if (connection === 'disconnected') {
 					// The provider reports a drop but does not retry by itself.
 					scheduleReconnect();
@@ -278,12 +223,12 @@ export function PptxEditorApp({ fileId, fileName, readOnly, relayUrl = '', onRea
 			// endpoint, where they are the ones signed into each token.
 			provider.onPresence((peers) => {
 				setCollaboration((current) => (current.phase === 'live' ? { ...current, peers: peers.length } : current));
-				scheduleRosterRefresh(PRESENCE_ROSTER_DEBOUNCE_MS);
+				refreshRoster(PRESENCE_ROSTER_DEBOUNCE_MS);
 			});
 			provider.connect();
 			providerRef.current = provider;
 		},
-		[clearReconnect, scheduleReconnect, scheduleRosterRefresh, fileId, relayUrl, session, authorName],
+		[clearReconnect, scheduleReconnect, refreshRoster, fileId, relayUrl, session, authorName],
 	);
 
 	// A fresh object here would re-open the editor on every render, so it is
