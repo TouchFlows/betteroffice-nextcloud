@@ -39,7 +39,7 @@ at the repo root for how to report a vulnerability.
   `vite-plugin-node-polyfills` → `node-stdlib-browser` → `crypto-browserify`
   → `browserify-sign`/`create-ecdh` → `elliptic`. All of it is build-only
   tooling that is never shipped to users, and `npm audit --omit=dev` is
-  clean for both `app/` and `relay/`. npm reports no available fix, and
+  clean for `app/`, `relay/` and `poc/`. npm reports no available fix, and
   there is no longer a downgrade to trade for one: the older findings
   (picomatch, minimatch) came in through `vite-plugin-dts`, which Vite 8's
   `@nextcloud/vite-config` 3 dropped — the remaining `minimatch` in the lock
@@ -58,6 +58,17 @@ at the repo root for how to report a vulnerability.
   `matchBase`. No bump can retire the pin either: `@nextcloud/files` 4.1.1
   and `webdav` 5.11.0 are the newest published versions of both, and `webdav`
   still declares `^9.0.9`. Re-check whenever either one is bumped.
+
+Both gaps above are enforced, not just recorded. `npm audit --omit=dev` runs
+on every workflow, in a step that fails its job instead of warning:
+"Dependency audit (shipped bundle only — fails the build)" in
+`.github/workflows/app-ci.yml` and `.github/workflows/poc-ci.yml`, and
+"Dependency audit (shipped service only — fails the build)" in
+`.github/workflows/relay-ci.yml`. `poc-ci.yml` needs its own copy because it
+is path-filtered to `poc/**`, which neither of the other two workflows ever
+sees. Each of the three is followed by a dev-inclusive `npm audit` that warns
+only — that is where the low findings above surface, so a warning annotation
+next to a green step is the expected shape, not a broken check.
 
 ## File access boundary
 
