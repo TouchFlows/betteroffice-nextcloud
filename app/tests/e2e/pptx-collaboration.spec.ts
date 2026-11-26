@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
 import { E2E_ORIGIN } from './e2eRoom';
 import { newContext, test } from './fixtures';
-import { appendToTitle, deckHasText, openPptxEditor } from './pptxDriver';
+import { appendToTitle, deckHasText, openPptxEditor, writeRefusal } from './pptxDriver';
 
 /**
  * PPTX collaboration, end to end: two independent browser sessions open the
@@ -79,6 +79,105 @@ test.describe('pptx: two browsers through the real relay', () => {
 		} finally {
 			await aliceContext.close();
 			await bobContext.close();
+		}
+	});
+
+	/**
+	 * The role half of the same wiring. A viewer in the room is what makes the
+	 * server-issued role mean something: it must receive the writer's edits (so
+	 * a share marked read-only is still useful), and it must not be able to
+	 * write -- neither through the editor it was given, nor into the file.
+	 *
+	 * Three separate things are asserted, because each can fail on its own: the
+	 * editor refuses the edit with its own `read-only` code, it offers no save
+	 * affordance, and a save gesture never reaches the document API. A viewer
+	 * that merely hid the toolbar would pass the first half of this spec.
+	 *
+	 * The last assertion is the reason this spec is not only about roles. The
+	 * presentation provider answers the room's handshake with a SyncStep2, which
+	 * the relay drops silently for a read token; the spreadsheet provider sends
+	 * a whole-state *update* instead, which the relay refuses by closing the
+	 * socket (1008), and that used to evict its viewer about once a second
+	 * (xlsx-collaboration.spec.ts). Zero closes here pins that this format does
+	 * not need the transport's `publishUpdates` option, so a later change that
+	 * starts sending an update from a viewer fails loudly rather than only
+	 * showing up as a flickering roster.
+	 */
+	test('a read-only viewer receives the writer\'s edits and cannot write', async ({ browser, room, request }) => {
+		test.setTimeout(180_000);
+
+		const writerContext = await newContext(browser, room);
+		const viewerContext = await newContext(browser, room);
+		// `betteroffice-e2e-role=read` is what the mock's session endpoint signs
+		// into the token, standing in for the server's own permission check.
+		await viewerContext.addCookies([
+			{ name: 'betteroffice-e2e-role', value: 'read', url: E2E_ORIGIN },
+			{ name: 'betteroffice-e2e-user', value: 'Carol', url: E2E_ORIGIN },
+		]);
+		// Every close of the viewer's relay socket, so the spec can prove the
+		// session is stable rather than merely connected at one instant.
+		await viewerContext.addInitScript(() => {
+			const closes: Array<{ code: number; reason: string; url: string }> = [];
+			(window as unknown as { __testSocketCloses: typeof closes }).__testSocketCloses = closes;
+			const Native = window.WebSocket;
+			class TrackingWebSocket extends Native {
+				constructor(url: string | URL, protocols?: string | string[]) {
+					super(url, protocols);
+					this.addEventListener('close', (event) => {
+						closes.push({ code: event.code, reason: event.reason, url: String(url) });
+					});
+				}
+			}
+			(window as unknown as { WebSocket: typeof WebSocket }).WebSocket = TrackingWebSocket as unknown as typeof WebSocket;
+		});
+		const writer = await writerContext.newPage();
+		const viewer = await viewerContext.newPage();
+
+		try {
+			await openPptxEditor(writer);
+			// `readOnly` is what the page passes for a file the user may not
+			// update; the viewer joins the same room regardless, and the mock
+			// session endpoint signs it a `read` token.
+			await openPptxEditor(viewer, { readOnly: true });
+
+			// A live edit by the writer reaches the viewer, so the share is
+			// useful rather than merely connected.
+			await appendToTitle(writer, ' [for-viewer]');
+			await expect.poll(() => deckHasText(viewer, '[for-viewer]'), { timeout: 30_000 }).toBe(true);
+
+			// The viewer's own edits are refused by the editor, with its own
+			// code -- not by a hidden button.
+			expect(await writeRefusal(viewer, ' [from-viewer]')).toBe('read-only');
+			expect(await deckHasText(viewer, '[from-viewer]')).toBe(false);
+			expect(await deckHasText(writer, '[from-viewer]')).toBe(false);
+
+			// No save affordance, and a save gesture anyway writes nothing.
+			await expect(viewer.getByRole('button', { name: /^Save$/ })).toHaveCount(0);
+			await viewer.keyboard.press('ControlOrMeta+s');
+			await viewer.waitForTimeout(1_500);
+			await expect(viewer.locator('.betteroffice-save-status--saved')).toHaveCount(0);
+			const state = (await (await request.get(`/__test__/document-state?room=${room}&fileId=3`)).json()) as {
+				saved: boolean;
+			};
+			expect(state.saved).toBe(false);
+
+			// And the writer sees the viewer as a read-only participant, from the
+			// role the server signed -- the same roster path the two-writer spec
+			// asserts.
+			await expect(writer.locator('[data-collaboration-role="read"]')).toContainText('Carol', {
+				timeout: 30_000,
+			});
+
+			// The viewer must keep the socket it opened: a viewer that is in the
+			// room must not be thrown out by its own handshake.
+			const closes = await viewer.evaluate(() =>
+				(window as unknown as { __testSocketCloses: Array<{ code: number; reason: string; url: string }> })
+					.__testSocketCloses.filter((close) => new URL(close.url).pathname.startsWith('/room/')),
+			);
+			expect(closes, `the viewer's relay socket was closed: ${JSON.stringify(closes)}`).toEqual([]);
+		} finally {
+			await writerContext.close();
+			await viewerContext.close();
 		}
 	});
 });
