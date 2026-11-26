@@ -10,6 +10,20 @@
 	height: 100%;
 }
 
+/* The spreadsheet/presentation wrappers mirror .betteroffice-editor: the
+   editors size themselves to their container, so the container has to be the
+   full viewport column rather than shrink-wrapping the status line. */
+.betteroffice-format-editor {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+.betteroffice-format-editor__canvas {
+	flex: 1;
+	min-height: 0;
+}
+
 .betteroffice-editor-message {
 	padding: 16px;
 }

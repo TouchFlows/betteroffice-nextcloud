@@ -15,6 +15,10 @@
   "dependencies": {
     "@betteroffice/docx": "0.5.1",
     "@betteroffice/docx-react": "0.5.1",
+    "@betteroffice/pptx": "0.5.1",
+    "@betteroffice/pptx-react": "0.5.1",
+    "@betteroffice/xlsx": "0.5.1",
+    "@betteroffice/xlsx-react": "0.5.1",
     "@nextcloud/auth": "2.6.0",
     "@nextcloud/axios": "2.6.0",
     "@nextcloud/files": "4.1.1",

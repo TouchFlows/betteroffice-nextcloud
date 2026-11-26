@@ -47,9 +47,8 @@ auto-generated secret shared with the relay, §8.5), `Settings\Admin` and
 `SettingsController` (Settings → Administration → BetterOffice: relay URL
 and secret, §4.A/§11), and the frontend's own collaboration wiring in
 `EditorApp`. Still ahead: save coordination and conflict recovery (§9) in
-Phase 5, and XLSX/PPTX in Phase 4.
-
-XLSX/PPTX file actions and editors are Phase 4.
+Phase 5, and XLSX/PPTX collaboration in Phase 4 — both of those editors
+already open and save single-user.
 
 ## `app/` frontend — the BetterOffice editors
 
@@ -60,8 +59,12 @@ over WebSocket. The exact wiring differs per format — see
 `poc/RECONNAISSANCE.md` §3 for the confirmed, non-obvious differences (which
 prop/callback actually hands you the live collaboration replica, and which
 `CollaborationProvider` constructor accepts it directly vs. needs wrapping).
-Phase 2 only wires `DocxEditor`, without `collaboration` at all — it reads
-and writes `documentBuffer`/`onSave` directly against `DocumentController`.
+All three editors are wired: the server resolves the file's format from its
+mime type, the template hands it to the bundle, and `src/editor/main.tsx`
+mounts `DocxEditor`/`XlsxEditor`/`PptxEditor` accordingly. Only DOCX passes a
+`collaboration` prop so far; the other two read and write through the same
+`DocumentController` endpoints (load, then `onSave` back with the loaded
+ETag), which is what makes them usable before their collaboration is wired.
 
 ## `relay/` — the collaboration relay
 

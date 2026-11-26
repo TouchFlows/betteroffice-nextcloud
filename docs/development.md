@@ -51,10 +51,11 @@ container like `relay-ci.yml`.
 
 To actually run it inside Nextcloud: symlink or copy `app/` to
 `<nextcloud>/apps/betteroffice`, then `occ app:enable betteroffice`. As of
-Phase 3 this gets you: an "Open with BetterOffice" DOCX file action (also the
-double-click default), the DOCX editor page with live collaboration and
-presence, and read/save with ETag conflict detection. XLSX/PPTX are later
-phases — see PLAN.md §17. Point the app at a relay and run the two-user check
+Phase 3 this gets you: an "Open with BetterOffice" action for DOCX, XLSX and
+PPTX (also the double-click default), the editor page for all three formats,
+and read/save with ETag conflict detection. DOCX also has live collaboration
+and presence; XLSX/PPTX are single-user until their collaboration slices land
+— see PLAN.md §17. Point the app at a relay and run the two-user check
 as described in "Running against a real Nextcloud" below.
 
 ## Running against a real Nextcloud
