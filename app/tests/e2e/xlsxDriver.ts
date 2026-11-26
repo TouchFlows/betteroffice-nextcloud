@@ -32,6 +32,7 @@ interface XlsxFindResult {
 
 interface XlsxEditResult {
 	ok?: boolean;
+	failure?: { code?: string; message?: string };
 }
 
 interface XlsxApi {
@@ -43,9 +44,13 @@ function apiIn(page: Page): Promise<boolean> {
 	return page.evaluate(() => (window as unknown as { __betteroffice?: { xlsxApi?: XlsxApi } }).__betteroffice?.xlsxApi !== undefined);
 }
 
-/** Opens the workbook with collaboration on and waits until it is connected and synced. */
-export async function openXlsxEditor(page: Page): Promise<void> {
-	await page.goto(XLSX_EDITOR_PATH);
+/**
+ * Opens the workbook with collaboration on and waits until it is connected and
+ * synced. `readOnly` mirrors what the page passes for a file the viewer may
+ * not update, so the same app path is exercised for viewers and writers.
+ */
+export async function openXlsxEditor(page: Page, { readOnly = false } = {}): Promise<void> {
+	await page.goto(`${XLSX_EDITOR_PATH}${readOnly ? '&readOnly=1' : ''}`);
 	await expect(page.getByRole('application', { name: 'Spreadsheet editor' })).toBeVisible({ timeout: 30_000 });
 	await expect(page.getByRole('grid', { name: 'Spreadsheet grid' })).toBeVisible({ timeout: 30_000 });
 	await expect(page.locator('[data-collaboration-status="connected"]')).toBeVisible({ timeout: 30_000 });
@@ -74,17 +79,20 @@ export async function workbookHasText(page: Page, text: string): Promise<boolean
 	}
 }
 
+interface WriteOutcome {
+	ok: boolean;
+	/** Why the write did not land: an edit refusal code, or a local failure. */
+	reason: string;
+}
+
 /**
- * Appends `marker` to the cell holding the workbook's title, through the
- * editor's own `applyEdits`.
- *
- * `applyEdits` refuses with `stale-version` when the workbook changed between
- * the read and the write -- which is exactly what a peer's update does -- so
- * the read and the edit are retried together rather than failing the run.
+ * One attempt to append `marker` to the cell holding the workbook's title,
+ * through the editor's own `applyEdits`. Reads the cell first because the edit
+ * needs its address and its current text, and the version it was read at.
  */
-export async function appendToTitle(page: Page, marker: string): Promise<void> {
-	for (let attempt = 0; ; attempt++) {
-		const outcome = await page.evaluate(
+async function writeMarker(page: Page, marker: string): Promise<WriteOutcome> {
+	try {
+		return await page.evaluate(
 			async ({ anchor, marker }) => {
 				const api = (window as unknown as { __betteroffice?: { xlsxApi?: XlsxApi } }).__betteroffice?.xlsxApi;
 				if (!api) return { ok: false, reason: 'no api' };
@@ -101,12 +109,40 @@ export async function appendToTitle(page: Page, marker: string): Promise<void> {
 						},
 					],
 				});
-				return { ok: result?.ok === true, reason: JSON.stringify(result) };
+				if (result?.ok === true) return { ok: true, reason: 'applied' };
+				return { ok: false, reason: result?.failure?.code ?? JSON.stringify(result) };
 			},
 			{ anchor: ANCHOR_TEXT, marker },
 		);
+	} catch (error) {
+		// An update landing mid-request can reject the call itself; the caller
+		// retries, which is cheaper than duplicating the retry loop here.
+		return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+/**
+ * Appends `marker` to the cell holding the workbook's title, through the
+ * editor's own `applyEdits`.
+ *
+ * `applyEdits` refuses with `stale-version` when the workbook changed between
+ * the read and the write -- which is exactly what a peer's update does -- so
+ * the read and the edit are retried together rather than failing the run.
+ */
+export async function appendToTitle(page: Page, marker: string): Promise<void> {
+	for (let attempt = 0; attempt <= 6; attempt++) {
+		const outcome = await writeMarker(page, marker);
 		if (outcome.ok) return;
-		if (attempt >= 6) throw new Error(`could not write the marker: ${outcome.reason}`);
+		if (attempt === 6) throw new Error(`could not write the marker: ${outcome.reason}`);
 		await page.waitForTimeout(100);
 	}
+}
+
+/**
+ * Tries the same edit once and reports how the editor refused it, so a spec
+ * can assert that a viewer's refusal is the editor's own `read-only` code
+ * rather than a missing button.
+ */
+export async function writeRefusal(page: Page, marker: string): Promise<string> {
+	return (await writeMarker(page, marker)).reason;
 }
