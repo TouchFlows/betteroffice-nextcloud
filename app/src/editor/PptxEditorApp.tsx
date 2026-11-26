@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
 import { translate as t } from '@nextcloud/l10n';
-import { PptxEditor } from '@betteroffice/pptx-react';
+import { PptxEditor, type PptxAsyncEditorApi } from '@betteroffice/pptx-react';
 import { initWasm } from '@betteroffice/pptx';
 import { loadDocument, saveDocument, type LoadedDocument } from './documentApi';
 import { SaveStatusLine, type SaveStatus } from './saveStatus';
@@ -18,7 +18,16 @@ import type { FormatEditorProps } from './XlsxEditorApp';
  * empty list is the documented default rather than an omission
  * (poc/RECONNAISSANCE.md §3).
  */
-export function PptxEditorApp({ fileId, fileName, readOnly }: FormatEditorProps) {
+export interface PptxEditorAppProps extends FormatEditorProps {
+	/**
+	 * Hands the live editor API to an embedding host. The e2e harness uses it
+	 * to read the deck's text, which is painted to canvas and therefore has no
+	 * DOM to query; production code has no need for it.
+	 */
+	onReady?: (api: PptxAsyncEditorApi) => void;
+}
+
+export function PptxEditorApp({ fileId, fileName, readOnly, onReady }: PptxEditorAppProps) {
 	const [document, setDocument] = useState<LoadedDocument>();
 	const [loadError, setLoadError] = useState<string>();
 	const [status, setStatus] = useState<SaveStatus>('idle');
@@ -81,7 +90,7 @@ export function PptxEditorApp({ fileId, fileName, readOnly }: FormatEditorProps)
 			<h1 className="hidden-visually">{fileName}</h1>
 			<SaveStatusLine status={status} />
 			<div className="betteroffice-format-editor__canvas">
-				<PptxEditor file={document.bytes} fonts={[]} readOnly={readOnly} onSave={handleSave} />
+				<PptxEditor file={document.bytes} fonts={[]} readOnly={readOnly} onSave={handleSave} onReady={onReady} />
 			</div>
 		</div>
 	);

@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import type { RefObject } from 'react';
 import type { DocxEditorRef } from '@betteroffice/docx-react';
+import type { PptxAsyncEditorApi } from '@betteroffice/pptx-react';
 import { EditorRoute } from '../../../src/editor/EditorRoute';
 import '../../../css/style.css';
 
@@ -11,14 +12,22 @@ import '../../../css/style.css';
 
 declare global {
 	interface Window {
-		__betteroffice?: { editorRef?: RefObject<DocxEditorRef | null> };
+		__betteroffice?: {
+			editorRef?: RefObject<DocxEditorRef | null>;
+			/** Presentation editor API, for deck text the canvas does not expose as DOM. */
+			pptxApi?: PptxAsyncEditorApi;
+		};
 	}
 }
 
 // A stable identity: EditorApp calls this from an effect keyed on the
 // callback, so a fresh closure per render would re-run it every render.
 function exposeEditorRef(editorRef: RefObject<DocxEditorRef | null>): void {
-	window.__betteroffice = { editorRef };
+	window.__betteroffice = { ...window.__betteroffice, editorRef };
+}
+
+function exposePptxApi(api: PptxAsyncEditorApi): void {
+	window.__betteroffice = { ...window.__betteroffice, pptxApi: api };
 }
 
 const params = new URLSearchParams(window.location.search);
@@ -39,5 +48,6 @@ createRoot(mount).render(
 		relayUrl={relayUrl}
 		format={format}
 		onEditorRef={exposeEditorRef}
+		onPptxReady={exposePptxApi}
 	/>,
 );

@@ -1,7 +1,7 @@
 import type { RefObject } from 'react';
 import type { DocxEditorRef } from '@betteroffice/docx-react';
 import { EditorApp } from './EditorApp';
-import { PptxEditorApp } from './PptxEditorApp';
+import { PptxEditorApp, type PptxEditorAppProps } from './PptxEditorApp';
 import { XlsxEditorApp } from './XlsxEditorApp';
 
 export interface EditorRouteProps {
@@ -17,6 +17,8 @@ export interface EditorRouteProps {
 	 * honoured on that branch. The e2e harness uses it; production does not.
 	 */
 	onEditorRef?: (ref: RefObject<DocxEditorRef | null>) => void;
+	/** Same harness-only hook for the presentation editor's API. */
+	onPptxReady?: PptxEditorAppProps['onReady'];
 }
 
 /**
@@ -25,12 +27,20 @@ export interface EditorRouteProps {
  * page hands it down. Shared by the real entry point and the e2e harness so
  * the harness tests this dispatch rather than a second copy of it.
  */
-export function EditorRoute({ fileId, fileName, readOnly, relayUrl = '', format, onEditorRef }: EditorRouteProps) {
+export function EditorRoute({
+	fileId,
+	fileName,
+	readOnly,
+	relayUrl = '',
+	format,
+	onEditorRef,
+	onPptxReady,
+}: EditorRouteProps) {
 	if (format === 'xlsx') {
 		return <XlsxEditorApp fileId={fileId} fileName={fileName} readOnly={readOnly} />;
 	}
 	if (format === 'pptx') {
-		return <PptxEditorApp fileId={fileId} fileName={fileName} readOnly={readOnly} />;
+		return <PptxEditorApp fileId={fileId} fileName={fileName} readOnly={readOnly} onReady={onPptxReady} />;
 	}
 	return (
 		<EditorApp
