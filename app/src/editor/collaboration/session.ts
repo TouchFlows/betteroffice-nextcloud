@@ -1,6 +1,5 @@
 import axios from '@nextcloud/axios';
 import { generateUrl } from '@nextcloud/router';
-import { createYrsSession } from '@betteroffice/docx/yrs';
 
 /**
  * The client half of PLAN.md §8.2 (room initialisation) and §8.5 (token):
@@ -67,10 +66,20 @@ export async function requestCollaborationSession(fileId: number): Promise<Colla
 }
 
 /**
+ * Produces this format's room seed from the file bytes (see `docxSeed.ts`,
+ * `pptxSeed.ts`): one engine per format, but one handshake for all of them.
+ */
+export type SeedGenerator = () => Promise<Uint8Array>;
+
+/**
  * §8.2 steps 3-6: the seed is created once per room, never independently per
  * client. Seeding the same source bytes under different client ids produces
  * *different* CRDT state (poc/RECONNAISSANCE.md §3), so a client that
  * generated its own seed for an already-seeded room would diverge forever.
+ *
+ * The seed itself is format-specific, so it arrives as `generateSeed`;
+ * everything around it -- the room, the token, the create-if-absent offer --
+ * is not, and the relay only ever sees opaque bytes.
  *
  * `PUT .../seed` is create-if-absent: it returns the caller's own bytes when
  * this client won the race, or the winner's bytes when it lost. Either way the
@@ -79,14 +88,11 @@ export async function requestCollaborationSession(fileId: number): Promise<Colla
 export async function resolveInitialUpdate(
 	fileId: number,
 	session: CollaborationSession,
-	documentBuffer: ArrayBuffer,
-	clientId: number,
+	generateSeed: SeedGenerator,
 ): Promise<Uint8Array> {
 	if (session.seed) return session.seed;
 
-	const years = await createYrsSession({ clientId });
-	years.seedFromDocx(new Uint8Array(documentBuffer), { generation: session.roomId });
-	const offered = years.encodeState();
+	const offered = await generateSeed();
 
 	const { data } = await axios.put<{ seed?: unknown }>(
 		`${collaborationSessionUrl(fileId)}/seed`,

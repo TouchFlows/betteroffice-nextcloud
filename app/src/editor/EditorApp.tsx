@@ -8,6 +8,7 @@ import { DocxEditor, type DocxEditorRef } from '@betteroffice/docx-react';
 import '@betteroffice/docx-react/styles.css';
 import { CollaborationProvider, type CollaborationReplica } from '@betteroffice/docx/collaboration';
 import { CollaborationStatusBar, type CollaborationState } from './collaboration/CollaborationStatus';
+import { generateDocxSeed } from './collaboration/docxSeed';
 import { WsCollaborationTransport } from './collaboration/transport';
 import {
 	relaySocketUrl,
@@ -146,7 +147,9 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 		void (async () => {
 			try {
 				const resolved = await requestCollaborationSession(fileId);
-				const seed = await resolveInitialUpdate(fileId, resolved, documentBuffer, clientId);
+				const seed = await resolveInitialUpdate(fileId, resolved, () =>
+					generateDocxSeed(documentBuffer, clientId, resolved.roomId),
+				);
 				if (cancelled) return;
 				setSession(resolved);
 				initialTokenRef.current = { roomId: resolved.roomId, token: resolved.token };
