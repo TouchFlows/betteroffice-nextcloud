@@ -9,8 +9,11 @@ on:
   push:
     branches: [main]
     paths: ['poc/**', '.github/workflows/poc-ci.yml']
+  # Unfiltered on pull requests on purpose: these jobs are required status
+  # checks on main, and a filtered workflow that never runs leaves its checks
+  # "Expected -- waiting", blocking pull requests that touch other trees.
+  # See the same note in app-ci.yml.
   pull_request:
-    paths: ['poc/**', '.github/workflows/poc-ci.yml']
 
 defaults:
   run:

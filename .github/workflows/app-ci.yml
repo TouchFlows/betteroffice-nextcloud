@@ -6,8 +6,14 @@ on:
     # relay/** too: the editor e2e suite starts the real relay and proves
     # collaboration through it, so a relay change must re-run this workflow.
     paths: ['app/**', 'relay/**', '.github/workflows/app-ci.yml']
+  # Deliberately unfiltered on pull requests. These jobs are required status
+  # checks on main, and a path-filtered workflow that does not run leaves its
+  # required checks "Expected -- waiting for status", which blocks every pull
+  # request that touches something else (docs/, for instance) no matter how
+  # green it is. Running the suite on an unrelated change costs a few minutes;
+  # a permanently unmergeable pull request costs more. Push-to-main keeps the
+  # filter: nothing gates that direction.
   pull_request:
-    paths: ['app/**', 'relay/**', '.github/workflows/app-ci.yml']
 
 defaults:
   run:
