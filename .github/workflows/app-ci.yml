@@ -82,10 +82,10 @@ jobs:
       - run: npm ci
 
       - name: Assert the typecheck runs TypeScript 7
-        # @typescript/typescript6 -- the compiler-API fallback vite-plugin-dts
-        # needs under TypeScript 7 -- depends on @typescript/old, an alias of
-        # typescript 6 whose own "tsc" bin wins node_modules/.bin/tsc. A plain
-        # "tsc" script therefore typechecks with 6 and stays green while
+        # A "tsc" script resolves through node_modules/.bin, where any package
+        # shipping its own "tsc" bin shadows the root compiler -- an alias of
+        # typescript 6 did exactly that while vite-plugin-dts needed it. The
+        # typecheck would then run the wrong version and stay green while
         # missing every 7-only error, so ask the scripts themselves which
         # compiler they invoke instead of trusting the package.json name.
         run: |

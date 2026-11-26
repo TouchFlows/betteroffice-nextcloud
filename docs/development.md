@@ -3,7 +3,8 @@
 ## Prerequisites
 
 - PHP 8.3–8.5 (Nextcloud 35 requires at minimum 8.3), Composer 2.x
-- Node 20, 22 or 24 (see each `package.json`'s `engines` field)
+- Node 22.18+, 24 or 26+ for the app (Vite 8 needs it); 20, 22 or 24 for
+  the relay (see each `package.json`'s `engines` field)
 - A local Nextcloud 31–35 install to mount `app/` into, to test the actual
   Files integration (file action, routes, controllers, the editor page's CSP)
   in a real Nextcloud. The automated suites still mock Nextcloud — the PHP
