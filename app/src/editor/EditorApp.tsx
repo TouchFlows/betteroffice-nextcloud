@@ -244,7 +244,13 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 	}, [initialUpdate, clientId, authorName, handleReplica]);
 
 	const handleSave = async (buffer: ArrayBuffer) => {
-		if (!etag) return;
+		// A read-only file is never written, whatever asks for it. The editor
+		// hides its own save chrome when `readOnly` is set, but Ctrl+S still
+		// runs the save workflow, and that write would go to Nextcloud rather
+		// than through the relay's read role -- which is what `onSaveRequest`
+		// below stops before serialization. This guard is the second half: the
+		// write itself is refused even if some other path reaches it.
+		if (readOnly || !etag) return;
 		setSaveStatus('saving');
 		try {
 			const response = await axios.put<{ etag: string }>(documentUrl(fileId), buffer, {
@@ -279,7 +285,10 @@ export function EditorApp({ fileId, fileName, readOnly, relayUrl = '', onEditorR
 				readOnly={readOnly}
 				author={authorName}
 				downloadOnSave={false}
-				onSaveRequest={() => true}
+				// `readOnly` owns File > Save and Ctrl+S: returning false stops the
+				// save before the document is serialized, so a viewer is never told
+				// its read-only file was saved.
+				onSaveRequest={() => !readOnly}
 				onSave={(buffer) => {
 					void handleSave(buffer);
 				}}
