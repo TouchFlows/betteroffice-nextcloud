@@ -31,6 +31,7 @@ class CollaborationControllerTest extends TestCase {
 		$userSession->method('getUser')->willReturn($user);
 
 		$file = $this->createStub(File::class);
+		$file->method('getMimeType')->willReturn('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 		$file->method('getEtag')->willReturn('"etag-1"');
 		$file->method('isUpdateable')->willReturn(true);
 
@@ -47,7 +48,10 @@ class CollaborationControllerTest extends TestCase {
 			->willReturn('https://cloud.example.test/index.php/avatar/alice/64');
 
 		$rooms = $this->createMock(RoomService::class);
-		$rooms->method('resolveSession')->willReturn($session);
+		$rooms->expects(self::once())
+			->method('resolveSession')
+			->with(1, 'docx', '"etag-1"')
+			->willReturn($session);
 		$rooms->expects(self::once())
 			->method('issueToken')
 			->with(
@@ -74,6 +78,50 @@ class CollaborationControllerTest extends TestCase {
 		self::assertSame('signed-token', $response->getData()['token']);
 		self::assertSame('room-1', $response->getData()['roomId']);
 		self::assertSame('write', $response->getData()['role']);
+	}
+
+	/**
+	 * The room id hashes the format (`RoomService::computeRoomId`), so the
+	 * format has to come from the file's own mime type: a spreadsheet
+	 * resolved as "docx" would land in the word processor's room, where every
+	 * peer would be running a different CRDT.
+	 */
+	public function testSessionTakesTheRoomFormatFromTheFilesMimeType(): void {
+		$user = $this->createStub(IUser::class);
+		$user->method('getUID')->willReturn('alice');
+		$user->method('getDisplayName')->willReturn('Alice Anderson');
+
+		$userSession = $this->createStub(IUserSession::class);
+		$userSession->method('getUser')->willReturn($user);
+
+		$file = $this->createStub(File::class);
+		$file->method('getMimeType')->willReturn('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+		$file->method('getEtag')->willReturn('"etag-1"');
+		$file->method('isUpdateable')->willReturn(true);
+
+		$fileAccess = $this->createStub(FileAccessService::class);
+		$fileAccess->method('getReadableFile')->willReturn($file);
+
+		$session = new Session();
+		$session->setRoomId('room-xlsx');
+
+		$rooms = $this->createMock(RoomService::class);
+		$rooms->expects(self::once())
+			->method('resolveSession')
+			->with(1, 'xlsx', '"etag-1"')
+			->willReturn($session);
+		$rooms->method('issueToken')->willReturn('signed-token');
+
+		$controller = new CollaborationController(
+			'betteroffice',
+			$this->createStub(IRequest::class),
+			$userSession,
+			$fileAccess,
+			$rooms,
+			$this->createStub(IURLGenerator::class),
+		);
+
+		self::assertSame('room-xlsx', $controller->session(1)->getData()['roomId']);
 	}
 
 	public function testSessionRefusesAnUnauthenticatedCallerBeforeTouchingTheFile(): void {
