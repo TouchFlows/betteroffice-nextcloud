@@ -8,6 +8,7 @@ use OCA\BetterOffice\Controller\DocumentController;
 use OCA\BetterOffice\Service\DocumentService;
 use OCA\BetterOffice\Service\FileAccessDeniedException;
 use OCP\AppFramework\Http;
+use OCP\AppFramework\Http\JSONResponse;
 use OCP\IRequest;
 use OCP\IUser;
 use OCP\IUserSession;
@@ -45,6 +46,41 @@ class DocumentControllerTest extends TestCase {
 
 		$response = $controller->save(42);
 
+		self::assertSame(Http::STATUS_FORBIDDEN, $response->getStatus());
+		self::assertSame(['message' => 'Forbidden'], $response->getData());
+	}
+
+	/**
+	 * What the endpoint answers when the session may not read the file at all.
+	 * FileAccessService::getReadableFile() refuses it and
+	 * DocumentService::read() propagates the exception, so what is left to
+	 * pin is the status: 403, not the 404 a missing file gives and not a
+	 * DataDisplayResponse that would leak content or mime type.
+	 *
+	 * The read path is the half a viewer depends on, so its refusal has to
+	 * be a deliberate answer rather than an unhandled exception surfacing as
+	 * a 500 that a client could mistake for a transient error.
+	 */
+	public function testReadAnswersForbiddenForAFileTheSessionMayNotRead(): void {
+		$user = $this->createStub(IUser::class);
+		$user->method('getUID')->willReturn('alice');
+
+		$userSession = $this->createStub(IUserSession::class);
+		$userSession->method('getUser')->willReturn($user);
+
+		$request = $this->createStub(IRequest::class);
+
+		$documents = $this->createMock(DocumentService::class);
+		$documents->expects(self::once())
+			->method('read')
+			->with('alice', 42)
+			->willThrowException(new FileAccessDeniedException('File 42 is not readable by alice'));
+
+		$controller = new DocumentController('betteroffice', $request, $userSession, $documents);
+
+		$response = $controller->read(42);
+
+		self::assertInstanceOf(JSONResponse::class, $response);
 		self::assertSame(Http::STATUS_FORBIDDEN, $response->getStatus());
 		self::assertSame(['message' => 'Forbidden'], $response->getData());
 	}
