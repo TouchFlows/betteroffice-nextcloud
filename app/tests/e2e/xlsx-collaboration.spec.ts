@@ -177,4 +177,79 @@ test.describe('xlsx: two browsers through the real relay', () => {
 			await viewerContext.close();
 		}
 	});
+
+	/**
+	 * The same role, from a client that ignores it. The spec above opens the
+	 * page's real read-only path (`readOnly=1`), where the editor refuses the
+	 * edit itself -- which proves the editor behaves, not that the role is
+	 * enforced. Here the session is signed a `read` token but the editor is
+	 * opened writable, so the edit really happens and something else has to
+	 * stop it.
+	 *
+	 * For the spreadsheet that something is the transport, not the relay: a
+	 * read-only viewer's provider sends a whole-state *update* as it joins, which
+	 * the relay refuses by closing the socket with 1008, so `publishUpdates`
+	 * keeps that frame off the wire and the viewer keeps the socket it opened.
+	 * Both halves are asserted: the writer never sees the edit, and the viewer is
+	 * never evicted for having tried. The second is what fails if
+	 * `publishUpdates` stops following the session's role.
+	 */
+	test('a writable editor on a read token publishes nothing', async ({ browser, room }) => {
+		test.setTimeout(180_000);
+
+		const writerContext = await newContext(browser, room);
+		const viewerContext = await newContext(browser, room);
+		// The mock's session endpoint signs `read` into this context's token.
+		await viewerContext.addCookies([
+			{ name: 'betteroffice-e2e-role', value: 'read', url: E2E_ORIGIN },
+			{ name: 'betteroffice-e2e-user', value: 'Mallory', url: E2E_ORIGIN },
+		]);
+		await viewerContext.addInitScript(() => {
+			const closes: Array<{ code: number; reason: string; url: string }> = [];
+			(window as unknown as { __testSocketCloses: typeof closes }).__testSocketCloses = closes;
+			const Native = window.WebSocket;
+			class TrackingWebSocket extends Native {
+				constructor(url: string | URL, protocols?: string | string[]) {
+					super(url, protocols);
+					this.addEventListener('close', (event) => {
+						closes.push({ code: event.code, reason: event.reason, url: String(url) });
+					});
+				}
+			}
+			(window as unknown as { WebSocket: typeof WebSocket }).WebSocket = TrackingWebSocket as unknown as typeof WebSocket;
+		});
+		const writer = await writerContext.newPage();
+		const viewer = await viewerContext.newPage();
+
+		try {
+			await openXlsxEditor(writer);
+			await appendToTitle(writer, '[from-writer]');
+
+			// No `readOnly`: this is the client that ignores the role it was
+			// signed. It still receives the writer's state, so the share is
+			// useful -- which is what makes the negative assertion below mean
+			// something rather than merely "nothing connected".
+			await openXlsxEditor(viewer);
+			await expect.poll(() => workbookHasText(viewer, '[from-writer]'), { timeout: 30_000 }).toBe(true);
+
+			await appendToTitle(viewer, '[from-hostile]');
+			// The edit really landed in the viewer's own workbook, so it is the
+			// writer's copy that shows it was never published.
+			await expect.poll(() => workbookHasText(viewer, '[from-hostile]'), { timeout: 20_000 }).toBe(true);
+
+			await writer.waitForTimeout(1_500);
+			expect(await workbookHasText(writer, '[from-hostile]')).toBe(false);
+
+			// And nothing had to be refused at the relay: the frame was never
+			// sent, so the viewer was never disconnected.
+			const closes = await viewer.evaluate(() =>
+				(window as unknown as { __testSocketCloses: Array<{ code: number; reason: string; url: string }> })
+					.__testSocketCloses.filter((close) => new URL(close.url).pathname.startsWith('/room/')),
+			);
+			expect(closes, `the viewer's relay socket was closed: ${JSON.stringify(closes)}`).toEqual([]);
+		} finally {
+			await writerContext.close();
+			await viewerContext.close();
+		}
+	});
 });
