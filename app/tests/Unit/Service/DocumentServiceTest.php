@@ -52,6 +52,47 @@ class DocumentServiceTest extends TestCase {
 		$this->service->read('alice', 42);
 	}
 
+	/**
+	 * read() must accept a file the session may only read. The controller
+	 * test pins the 403 mapping for an unreadable file, but a swap of
+	 * getReadableFile() for getWritableFile() inside read() would still pass
+	 * it -- it would only start refusing files that are readable without
+	 * being updateable, which is every file a viewer opens. So the fixture
+	 * here is readable and not updateable: read() has to succeed, hand back
+	 * the content, and never write.
+	 *
+	 * The real FileAccessService is used rather than a stub, for the same
+	 * reason as the save case: stubbing getReadableFile would assert the
+	 * wiring and not the permission check this path runs.
+	 */
+	public function testReadAcceptsAFileTheSessionMayNotUpdateAndNeverWrites(): void {
+		$file = $this->createMock(File::class);
+		$file->method('getMimeType')->willReturn('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+		$file->method('getSize')->willReturn(1024);
+		$file->method('isReadable')->willReturn(true);
+		$file->method('isUpdateable')->willReturn(false);
+		$file->method('getContent')->willReturn('docx bytes');
+		$file->method('getEtag')->willReturn('"etag-1"');
+		$file->method('getName')->willReturn('report.docx');
+
+		$file->expects(self::once())->method('lock')->with(ILockingProvider::LOCK_SHARED);
+		$file->expects(self::once())->method('unlock')->with(ILockingProvider::LOCK_SHARED);
+		$file->expects(self::never())->method('putContent');
+
+		$userFolder = $this->createStub(Folder::class);
+		$userFolder->method('getById')->willReturn([$file]);
+		$rootFolder = $this->createStub(IRootFolder::class);
+		$rootFolder->method('getUserFolder')->willReturn($userFolder);
+
+		$service = new DocumentService(new FileAccessService($rootFolder));
+
+		$document = $service->read('alice', 42);
+
+		self::assertSame('docx bytes', $document->content);
+		self::assertSame('"etag-1"', $document->etag);
+		self::assertSame('report.docx', $document->fileName);
+	}
+
 	public function testSaveWritesWhenEtagMatchesAndReturnsTheNewEtag(): void {
 		// No lock()/unlock() expectations: File::putContent() runs its own
 		// full lock lifecycle internally. See the docblock on
