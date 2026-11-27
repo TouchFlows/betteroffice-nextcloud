@@ -180,4 +180,85 @@ test.describe('pptx: two browsers through the real relay', () => {
 			await viewerContext.close();
 		}
 	});
+
+	/**
+	 * The same role, from a client that ignores it. The spec above opens the
+	 * page's real read-only path (`readOnly=1`), where the editor refuses the
+	 * edit itself -- which proves the editor behaves, not that the role is
+	 * enforced. Here the session is signed a `read` token but the editor is
+	 * opened writable, so the edit really happens and something else has to
+	 * stop it.
+	 *
+	 * For the presentation that something is the relay, exactly as for DOCX:
+	 * nothing here suppresses a viewer's updates (`PptxEditorApp` passes no
+	 * `publishUpdates`, unlike `XlsxEditorApp`), because the provider's handshake
+	 * reply is already dropped for a read token. So the edit goes onto the wire
+	 * and `1008` is what has to stop it. Adding `publishUpdates` to this format
+	 * would leave the close list empty -- that is the guard this test pins.
+	 */
+	test('a writable editor on a read token is refused by the relay', async ({ browser, room }) => {
+		test.setTimeout(180_000);
+
+		const writerContext = await newContext(browser, room);
+		const viewerContext = await newContext(browser, room);
+		// The mock's session endpoint signs `read` into this context's token.
+		await viewerContext.addCookies([
+			{ name: 'betteroffice-e2e-role', value: 'read', url: E2E_ORIGIN },
+			{ name: 'betteroffice-e2e-user', value: 'Mallory', url: E2E_ORIGIN },
+		]);
+		// A rejection is the relay closing this viewer's socket, and the close
+		// code is the only place that is observable from the page.
+		await viewerContext.addInitScript(() => {
+			const closes: Array<{ code: number; reason: string; url: string }> = [];
+			(window as unknown as { __testSocketCloses: typeof closes }).__testSocketCloses = closes;
+			const Native = window.WebSocket;
+			class TrackingWebSocket extends Native {
+				constructor(url: string | URL, protocols?: string | string[]) {
+					super(url, protocols);
+					this.addEventListener('close', (event) => {
+						closes.push({ code: event.code, reason: event.reason, url: String(url) });
+					});
+				}
+			}
+			(window as unknown as { WebSocket: typeof WebSocket }).WebSocket = TrackingWebSocket as unknown as typeof WebSocket;
+		});
+		const writer = await writerContext.newPage();
+		const viewer = await viewerContext.newPage();
+
+		try {
+			await openPptxEditor(writer);
+			await appendToTitle(writer, ' [from-writer]');
+
+			// No `readOnly`: this is the client that ignores the role it was
+			// signed. It still receives the writer's state, so the share is
+			// useful -- which is what makes the negative assertion below mean
+			// something rather than merely "nothing connected".
+			await openPptxEditor(viewer);
+			await expect.poll(() => deckHasText(viewer, '[from-writer]'), { timeout: 30_000 }).toBe(true);
+
+			await appendToTitle(viewer, ' [from-hostile]');
+			// The edit really landed in the viewer's own deck, so it is the
+			// writer's copy that shows the relay refused it.
+			await expect.poll(() => deckHasText(viewer, '[from-hostile]'), { timeout: 20_000 }).toBe(true);
+
+			await expect
+				.poll(
+					() =>
+						viewer.evaluate(() =>
+							(window as unknown as { __testSocketCloses: Array<{ code: number; url: string }> })
+								.__testSocketCloses.filter((close) => new URL(close.url).pathname.startsWith('/room/'))
+								.map((close) => close.code),
+						),
+					{ timeout: 20_000 },
+				)
+				.toContain(1008);
+
+			// Rejected means it never reached the room.
+			await writer.waitForTimeout(1_000);
+			expect(await deckHasText(writer, '[from-hostile]')).toBe(false);
+		} finally {
+			await writerContext.close();
+			await viewerContext.close();
+		}
+	});
 });
